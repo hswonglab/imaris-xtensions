@@ -94,6 +94,17 @@ def Main(vImarisApplication):
             vNewChannelColors.append(int(f'00{blue}{green}{red}', 16))
         vNewChannelColorStrings = ['%08x' % color for color in vNewChannelColors]
 
+    if len(vOldChannelNames) != len(vNewChannelNames):
+        raise RuntimeError(
+            f'Old channels {vOldChannelNames} and new channels '
+            f'{vNewChannelNames} differ in length.'
+        )
+    if len(vOldChannelColorStrings) != len(vNewChannelColorStrings):
+        raise RuntimeError(
+            f'Old channel colors {vOldChannelColorStrings} and new channels '
+            f'{vNewChannelColorStrings} differ in length.'
+        )
+
     confirmed = messagebox.askokcancel(
         'Confirm Changes',
         (
