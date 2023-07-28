@@ -128,7 +128,12 @@ def Main(vImarisApplication):
         vImageNew.SetChannelColorRGBA(i, vNewColor)
     logging.info('Channel re-coloring complete.')
     vImarisApplication.SetImage(0, vImageNew)
-    logging.info('Note that user must save image manually, otherwise changes will be lost.')
+    logging.info('Asking user to save image.')
+    saved = messagebox.askyesno(
+        'Save changes.',
+        'Please save or discard changes. Did you save the file?'
+    )
+    logging.info('User reports that they saved changes: %s', saved)
     logging.info('----- Done Editing %s -----', image_path)
     print('Changes complete.')
 
