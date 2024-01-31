@@ -40,11 +40,12 @@ named `XTensionName` in a file called `XTension.py` and execute that function.
 
 ## Acknowledgements
 
-These XTensions were created in the
-[Wong Lab](https://biology.mit.edu/profile/harikesh-s-wong/), an
-[MIT](https://mit.edu) lab at the
-[Ragon Institute](https://ragoninstitute.org/) of Mass General, MIT, and
-Harvard.
+Copyright © 2023-2024 Massachusetts Institute of Technology and Massachusetts
+General Hospital. All rights reserved.
+
+These XTensions were created in the [Wong Lab](https://hswonglab-ri.mit.edu/),
+an [MIT](https://mit.edu) lab at the
+[Ragon Institute](https://ragoninstitute.org/) of Mass General, MIT, and Harvard.
 
 This work was supported by a variety of funding sources, including:
 
