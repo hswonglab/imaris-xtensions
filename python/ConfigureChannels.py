@@ -7,7 +7,7 @@
 #
 #    <CustomTools>
 #      <Menu>
-#       <Item name="Configure Channels" icon="Python3" tooltip="Test XTension for debugging.">
+#       <Item name="Configure Channels" icon="Python3" tooltip="Apply stored settings to channels.">
 #         <Command>Python3XT::ConfigureChannels(%i)</Command>
 #       </Item>
 #      </Menu>
