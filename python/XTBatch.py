@@ -93,9 +93,9 @@ def XTBatch(vImarisApplication,fn,args):
     ----------
     vImarisApplication : IApplication
         Imaris application object currently connected
-    fn : Callable(IDataset, *args)
+    fn : Callable[ [IDataset, *args], IDataset ]
         function to apply to images in each file
-    args : tuple 
+    args : tuple(...) 
         tuple of variables to be passed to fn as arguments
     '''
 
