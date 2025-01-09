@@ -1,4 +1,4 @@
-#  LinearUnmixing: An Imaris XTension to apply linear unmixing to an image
+ #  LinearUnmixing: An Imaris XTension to apply linear unmixing to an image
 #
 #  Copyright © 2023 MASSACHUSETTS INSTITUTE OF TECHNOLOGY.
 #  All rights reserved.
@@ -98,7 +98,10 @@ def XTBatch(vImarisApplication,fn,args):
     args : tuple(...) 
         tuple of variables to be passed to fn as arguments
     '''
-
+    overwrite=messagebox.askyesno(
+        'Save Options.',
+        'Would you like to overwrite the existing existing images with modified images? \n Otherwise modified images will be saved as a separate files ending in "XTBatch.ims"'
+    )
     curr_image_path = vImarisApplication.GetCurrentFileName()
     # extract directory for current image
     image_folder_path='\\'.join(curr_image_path.split('\\')[:-1])
@@ -119,9 +122,12 @@ def XTBatch(vImarisApplication,fn,args):
 
         vImarisApplication.SetImage(0, vImageNew)
 
-        path_strings=image_path.split('.')
-        path_strings[-2]+='XTBatch'
-        new_image_path='.'.join(path_strings)
+        if overwrite:
+            new_image_path=image_path
+        else:
+            path_strings=image_path.split('.')
+            path_strings[-2]+='XTBatch'
+            new_image_path='.'.join(path_strings)
         logging.info('Saving changes to %s', new_image_path)
         vImarisApplication.FileSave(new_image_path,'')
         logging.info('----- Done Editing %s -----', image_path)
