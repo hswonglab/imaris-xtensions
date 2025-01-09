@@ -49,9 +49,8 @@ try:
     import csv
     import logging
     import traceback
-
     import ImarisLib
-
+    from XTBatch import XTBatch
     from tkinter import *
     from tkinter import messagebox
     from tkinter import filedialog
@@ -60,13 +59,6 @@ except Exception as e:
     input("Press enter to exit;")
     raise
 
-#nonessential dependences
-try:
-    from XTBatch import XTBatch
-    batch_enabled=True
-except Exception as e:
-    print(e)
-    batch_enabled=False
 
 EXPECTED_HEADER = ['channel', 'setting', 'fluorophore', 'target', 'color']
 LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(message)s'
@@ -97,13 +89,11 @@ def Main(aImarisId):
     with filedialog.askopenfile(mode='r', title='Select CSV specifying renaming panel') as f:
         vNewChannelNames,vNewChannelColors=read_panel_csv(f)
         panel_file_path=f.name
-    if batch_enabled:
-        batched=messagebox.askyesno(
-            'Batched Operation.',
-            'Would you like to apply changes to all .ims files in this folder?'
-        )
-    else:
-        batched=False
+    batched=messagebox.askyesno(
+        'Batched Operation.',
+        'Would you like to apply changes to all .ims files in this folder?'
+    )
+
 
     if batched:
         XTBatch(vImarisApplication,ConfigureImageChannels,(vNewChannelNames,vNewChannelColors,True))
