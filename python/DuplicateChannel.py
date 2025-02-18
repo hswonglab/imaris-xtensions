@@ -26,9 +26,9 @@ Modified by Amy Huang
 try:
     import ImarisLib
     import numpy as np
-    from tqdm import tqdm
     import tkinter as tk
     import traceback
+    from tqdm import tqdm
     from tqdm.contrib.itertools import product
 except Exception as e:
     print(e)

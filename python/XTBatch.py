@@ -107,6 +107,8 @@ def XTBatch(vImarisApplication,fn,args):
     image_folder_path='\\'.join(curr_image_path.split('\\')[:-1])
     # make list of all .ims files in current directory
     all_image_paths=[f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
+
+    
     for image_path in all_image_paths:
         image_path=image_folder_path+'\\'+image_path
         vImarisApplication.FileOpen(image_path,'')
