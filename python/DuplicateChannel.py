@@ -68,6 +68,10 @@ def DuplicateChannel(aImarisId):
 
     # Select channels
     channels_selected = create_window_from_list(channel_list, window_title="Select channels:", display_names=channel_names)
+    if channels_selected is None:
+        print("Operation canceled by the user.")
+        return
+
     channels_selected = [np.int64(ch) for ch in channels_selected]
     selected_channel_names = [vImage.GetChannelName(ch - 1) for ch in channels_selected]
     print(f'Selected channels: {selected_channel_names}')
@@ -153,13 +157,14 @@ def create_window_from_list(object_list, window_title='Select one or more', w=50
     :param w: width of the window, default = 500
     :param h: height of the window, default = 800
     :param display_names: Optional list of display names corresponding to object_list
-    :return: List of selected items
+    :return: List of selected items or None if canceled
     """
     window = tk.Tk()
     window.title(window_title)
     window.geometry(str(w) + "x" + str(h))
 
     selected_items = []
+    canceled = False
 
     def on_selection_complete():
         for var, item in zip(checkbox_vars, object_list):
@@ -167,14 +172,22 @@ def create_window_from_list(object_list, window_title='Select one or more', w=50
                 selected_items.append(item)
         window.destroy()
 
+    def on_cancel():
+        nonlocal canceled
+        canceled = True
+        window.destroy()
+
     checkbox_vars = [tk.BooleanVar() for _ in object_list]
     for var, item, display_name in zip(checkbox_vars, object_list, display_names or object_list):
-        checkbox = tk.Checkbutton(window, text=display_name, variable=var)
-        checkbox.pack()
+        checkbox = tk.Checkbutton(window, text=display_name, variable=var, anchor="w", justify="left")
+        checkbox.pack(fill="x", anchor="w")
 
     closing_button = tk.Button(master=window, text='Selection Complete', command=on_selection_complete)
     closing_button.pack()
 
+    cancel_button = tk.Button(master=window, text='Cancel', command=on_cancel)
+    cancel_button.pack()
+
     window.mainloop()
 
-    return selected_items
+    return None if canceled else selected_items
