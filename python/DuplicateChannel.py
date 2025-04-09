@@ -63,13 +63,14 @@ def DuplicateChannel(aImarisId):
     vImage = vImarisApplication.GetImage(0)
     nChannels = vImage.GetSizeC()
     channel_list = range(1, nChannels + 1)
+    channel_names = [f"{ch}: {vImage.GetChannelName(ch - 1)}" for ch in channel_list]
     nTime = vImage.GetSizeT()
 
     # Select channels
-    channels_selected = create_window_from_list(channel_list, window_title="Select channels:")
+    channels_selected = create_window_from_list(channel_list, window_title="Select channels:", display_names=channel_names)
     channels_selected = [np.int64(ch) for ch in channels_selected]
-    channel_names = [vImage.GetChannelName(ch - 1) for ch in channels_selected]
-    print(f'Selected channels: {channel_names}')
+    selected_channel_names = [vImage.GetChannelName(ch - 1) for ch in channels_selected]
+    print(f'Selected channels: {selected_channel_names}')
 
     if batch_enabled:
         batched = tk.messagebox.askyesno(
@@ -143,7 +144,7 @@ def RunDuplicateChannel(vImage, channels_selected, verbose=True):
 
 
 # All credit goes to https://github.com/cvbi/cvbi/blob/master/gui.py
-def create_window_from_list(object_list, window_title='Select one or more', w=500, h=800):
+def create_window_from_list(object_list, window_title='Select one or more', w=500, h=800, display_names=None):
     """
     Create a selection window from provided list with multiple selection capability.
 
@@ -151,7 +152,7 @@ def create_window_from_list(object_list, window_title='Select one or more', w=50
     :param window_title: Window title
     :param w: width of the window, default = 500
     :param h: height of the window, default = 800
-
+    :param display_names: Optional list of display names corresponding to object_list
     :return: List of selected items
     """
     window = tk.Tk()
@@ -167,8 +168,8 @@ def create_window_from_list(object_list, window_title='Select one or more', w=50
         window.destroy()
 
     checkbox_vars = [tk.BooleanVar() for _ in object_list]
-    for var, item in zip(checkbox_vars, object_list):
-        checkbox = tk.Checkbutton(window, text=item, variable=var)
+    for var, item, display_name in zip(checkbox_vars, object_list, display_names or object_list):
+        checkbox = tk.Checkbutton(window, text=display_name, variable=var)
         checkbox.pack()
 
     closing_button = tk.Button(master=window, text='Selection Complete', command=on_selection_complete)
