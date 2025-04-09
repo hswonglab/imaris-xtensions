@@ -44,6 +44,7 @@ except Exception as e:
     batch_enabled=False
     input("Press enter to exit;")
 
+
 def DuplicateChannel(aImarisId):
     # Create an ImarisLib object
     vImarisLib = ImarisLib.ImarisLib()
@@ -64,23 +65,23 @@ def DuplicateChannel(aImarisId):
     channel_list = range(1, nChannels + 1)
     nTime = vImage.GetSizeT()
 
-    # Select channel
-    channel_selected = create_window_from_list(channel_list, window_title = "Select channel:")
-    ch_in = np.int64(channel_selected)
-    ch_in_name = vImage.GetChannelName(ch_in - 1)
-    print(f'Channel name: {ch_in_name}')
+    # Select channels
+    channels_selected = create_window_from_list(channel_list, window_title="Select channels:")
+    channels_selected = [np.int64(ch) for ch in channels_selected]
+    channel_names = [vImage.GetChannelName(ch - 1) for ch in channels_selected]
+    print(f'Selected channels: {channel_names}')
 
     if batch_enabled:
-        batched=tk.messagebox.askyesno(
+        batched = tk.messagebox.askyesno(
             'Batched Operation.',
             'Would you like to apply changes to all .ims files in this folder?'
         )
     else:
-        batched=False
+        batched = False
 
     if batched: 
         try: 
-            XTBatch(vImarisApplication, RunDuplicateChannel, (ch_in, True))
+            XTBatch(vImarisApplication, RunDuplicateChannel, (channels_selected, True))
         except Exception as e: 
             print(e)
             input("Press enter to exit;")
@@ -91,7 +92,7 @@ def DuplicateChannel(aImarisId):
             return
         
         try: 
-            vImageNew = RunDuplicateChannel(vImage, ch_in)
+            vImageNew = RunDuplicateChannel(vImage, channels_selected)
             vImarisApplication.SetImage(0, vImageNew)
         except Exception as e: 
             print(e)
@@ -99,79 +100,80 @@ def DuplicateChannel(aImarisId):
 
     tk.messagebox.showinfo('Complete', 'The XTension has terminated.')
 
-def RunDuplicateChannel(vImage, ch_in, verbose=True): 
 
-    # get channels
+def RunDuplicateChannel(vImage, channels_selected, verbose=True): 
+    # Get channels
     nChannels = vImage.GetSizeC()
-    channel_list = range(1, nChannels + 1)
     nTime = vImage.GetSizeT()
-    ch_in_name = vImage.GetChannelName(ch_in - 1)
-
-    # add channel and rename
-    ch_out = nChannels + 1
-    ch_out_name = f'{ch_in_name} - Duplicate'
 
     vImageNew = vImage.Clone()
-    vImageNew.SetSizeC(ch_out)
-    vImageNew.SetChannelName(ch_out - 1, ch_out_name)
+    vImageNew.SetSizeC(nChannels + len(channels_selected))
 
-    ### slice by slice copying originally developed by Eric in LinearUnmixing.py; modified for these purposes here
+    for ch_in in channels_selected:
+        ch_in_name = vImage.GetChannelName(ch_in - 1)
+        ch_out = nChannels + 1
+        ch_out_name = f'{ch_in_name} - Duplicate'
 
-    #process data slice by slice in square windows of length vWindowSize pixels
-    vWindowSize = 10000 # larger windows can speed up execution but will be more memory-intensive
-    vNumChannels = vImage.GetSizeC()
-    vNumSlices = vImage.GetSizeZ()
-    vXSize = vImage.GetSizeX()
-    vYSize=vImage.GetSizeY()
-    
-    if verbose: 
-        print("Duplicating channel...")
-    for x,y,z in product(range(0,vXSize,vWindowSize),range(0,vYSize,vWindowSize),range(vNumSlices)):
-        window_x_len=min(vWindowSize,vXSize-x)
-        window_y_len=min(vWindowSize,vYSize-y)
-        vImageArray=np.zeros((window_x_len,window_y_len)) # container for subslice of image as numpy array for one channel
+        vImageNew.SetChannelName(ch_out - 1, ch_out_name)
 
-        vImageArray=np.array([np.frombuffer(row,dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_in - 1,aIndexT=0,aSizeX=window_x_len,aSizeY=window_y_len)])
-        data_channel_colortable = vImage.GetChannelColorTable(aIndexC=ch_in - 1)
+        # Process data slice by slice
+        vWindowSize = 10000
+        vNumSlices = vImage.GetSizeZ()
+        vXSize = vImage.GetSizeX()
+        vYSize = vImage.GetSizeY()
         
-        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in vImageArray],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out - 1,aIndexT=0)
-        vImageNew.SetChannelColorTable(ch_out - 1, data_channel_colortable.mColorRGB, data_channel_colortable.mAlpha)
+        if verbose: 
+            print(f"Duplicating channel {ch_in_name}...")
+        for x, y, z in product(range(0, vXSize, vWindowSize), range(0, vYSize, vWindowSize), range(vNumSlices)):
+            window_x_len = min(vWindowSize, vXSize - x)
+            window_y_len = min(vWindowSize, vYSize - y)
+            vImageArray = np.zeros((window_x_len, window_y_len))
+
+            vImageArray = np.array([np.frombuffer(row, dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(
+                aIndexX=x, aIndexY=y, aIndexZ=z, aIndexC=ch_in - 1, aIndexT=0, aSizeX=window_x_len, aSizeY=window_y_len)])
+            data_channel_colortable = vImage.GetChannelColorTable(aIndexC=ch_in - 1)
+            
+            vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in vImageArray], aIndexX=x, aIndexY=y, aIndexZ=z, aIndexC=ch_out - 1, aIndexT=0)
+            vImageNew.SetChannelColorTable(ch_out - 1, data_channel_colortable.mColorRGB, data_channel_colortable.mAlpha)
+
+        nChannels += 1
 
     return vImageNew
 
 
 
 # All credit goes to https://github.com/cvbi/cvbi/blob/master/gui.py
-def create_window_from_list(object_list, window_title='Select one', w=500, h=800):
+def create_window_from_list(object_list, window_title='Select one or more', w=500, h=800):
     """
-    Create a selection window from provided list
+    Create a selection window from provided list with multiple selection capability.
 
-    :param object_list: List to create a button selector
+    :param object_list: List to create a checkbox selector
     :param window_title: Window title
     :param w: width of the window, default = 500
     :param h: height of the window, default = 800
 
-    :return: Creates a window
+    :return: List of selected items
     """
-
     window = tk.Tk()
     window.title(window_title)
-    window.geometry(str(w)+"x"+str(h))
+    window.geometry(str(w) + "x" + str(h))
 
-    object_select = tk.StringVar()
-    object_select.set(object_list[0])
-    header = tk.Label(master=window, textvariable=object_select)
-    header.pack()
+    selected_items = []
 
-    for item in object_list:
-        selection_button = tk.Radiobutton(window, text=item, variable=object_select, value=item)
-        selection_button.pack()
+    def on_selection_complete():
+        for var, item in zip(checkbox_vars, object_list):
+            if var.get():
+                selected_items.append(item)
+        window.destroy()
 
-    closing_button = tk.Button(master=window, text='Selection Complete', command=window.destroy)
+    checkbox_vars = [tk.BooleanVar() for _ in object_list]
+    for var, item in zip(checkbox_vars, object_list):
+        checkbox = tk.Checkbutton(window, text=item, variable=var)
+        checkbox.pack()
+
+    closing_button = tk.Button(master=window, text='Selection Complete', command=on_selection_complete)
     closing_button.pack()
 
     window.mainloop()
 
-    object_string = object_select.get()
-
-    return(object_string)
+    return selected_items
