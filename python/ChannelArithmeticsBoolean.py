@@ -1,4 +1,4 @@
-#  ChannelArithmetics: An Imaris XTension to perform channel arithmetics faster than the matlab extension (hopefully)
+#  ChannelArithmeticsBoolean: An Imaris XTension to perform channel arithmetics faster than the matlab extension (hopefully)
 #
 #  Copyright © 2023 MASSACHUSETTS INSTITUTE OF TECHNOLOGY.
 #  All rights reserved.
@@ -7,8 +7,8 @@
 #
 #    <CustomTools>
 #      <Menu>
-#       <Item name="Channel Arithmetics" icon="Python3" tooltip="Performs channel arithmetics similar to the Matlab extension.">
-#         <Command>Python3XT::ChannelArithmetics(%i)</Command>
+#       <Item name="Channel Arithmetics Boolean" icon="Python3" tooltip="Performs channel arithmetics similar to the Matlab extension.">
+#         <Command>Python3XT::ChannelArithmeticsBoolean(%i)</Command>
 #       </Item>
 #      </Menu>
 #    </CustomTools>
@@ -19,6 +19,7 @@ This XTension supports batch operations. The user will be prompted to choose
 whether all .ims files in the directory of the current image shall be modified
 
 Note (Amy, 2025-02-02): This function is in development; I've only tested it on addition so far and it seems to work but no guarentees use at your own risk!
+Note (Nicole, 2025-05-09): Thanks for the function Amy! Just trying to make it work for boolean expressions (setting clip from 0 to 1 at the end)
 '''
 
 #essential dependencies
@@ -54,7 +55,7 @@ def get_formula_from_user():
     formula_str = simpledialog.askstring("Input", "Enter channel arithmetic formula (e.g. ch1 + ch3 * ch10)")
     return formula_str
 
-def ChannelArithmetics(aImarisId):
+def ChannelArithmeticsBoolean(aImarisId):
     
     # Initialize and launch Tk window, then hide it.
     vRootTkWindow = tk.Tk()
@@ -143,10 +144,7 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
             left = self.visit(node.left)
             right = self.visit(node.right)
             if type(node.op) in allowed_operators: 
-                ret_val = allowed_operators[type(node.op)](left, right)
-                if np.any(ret_val < 0):
-                    print("Negative Numbers")
-                return ret_val
+                return allowed_operators[type(node.op)](left, right)
             else: 
                 raise ValueError("Unsupported operator: {}".format(node.op))
         
@@ -205,8 +203,11 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
 
         # calculate
         new_channel_values = EvalVisitor().visit(tree.body)
+
+        # bound values to 0, 255
+        new_channel_values_clipped = new_channel_values.clip(0,1)
         
         # Add data to new channel in new Image
-        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
+        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values_clipped],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
 
     return vImageNew

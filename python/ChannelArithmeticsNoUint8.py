@@ -1,4 +1,4 @@
-#  ChannelArithmetics: An Imaris XTension to perform channel arithmetics faster than the matlab extension (hopefully)
+#  ChannelArithmeticsNoUint8: An Imaris XTension to perform channel arithmetics faster than the matlab extension (hopefully)
 #
 #  Copyright © 2023 MASSACHUSETTS INSTITUTE OF TECHNOLOGY.
 #  All rights reserved.
@@ -7,8 +7,8 @@
 #
 #    <CustomTools>
 #      <Menu>
-#       <Item name="Channel Arithmetics" icon="Python3" tooltip="Performs channel arithmetics similar to the Matlab extension.">
-#         <Command>Python3XT::ChannelArithmetics(%i)</Command>
+#       <Item name="Channel Arithmetics (no uint8)" icon="Python3" tooltip="Performs channel arithmetics similar to the Matlab extension.">
+#         <Command>Python3XT::ChannelArithmeticsNoUint8(%i)</Command>
 #       </Item>
 #      </Menu>
 #    </CustomTools>
@@ -54,7 +54,7 @@ def get_formula_from_user():
     formula_str = simpledialog.askstring("Input", "Enter channel arithmetic formula (e.g. ch1 + ch3 * ch10)")
     return formula_str
 
-def ChannelArithmetics(aImarisId):
+def ChannelArithmeticsNoUint8(aImarisId):
     
     # Initialize and launch Tk window, then hide it.
     vRootTkWindow = tk.Tk()
@@ -143,10 +143,7 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
             left = self.visit(node.left)
             right = self.visit(node.right)
             if type(node.op) in allowed_operators: 
-                ret_val = allowed_operators[type(node.op)](left, right)
-                if np.any(ret_val < 0):
-                    print("Negative Numbers")
-                return ret_val
+                return allowed_operators[type(node.op)](left, right)
             else: 
                 raise ValueError("Unsupported operator: {}".format(node.op))
         
@@ -193,7 +190,7 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
         for ch_name in channel_indices:
             channel_values[ch_name] = np.zeros((window_x_len,window_y_len))
             ch_index = channel_indices[ch_name]
-            channel_values[ch_name] = np.array([np.frombuffer(row,dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=0,aSizeX=window_x_len,aSizeY=window_y_len)])
+            channel_values[ch_name] = np.array([np.frombuffer(row,dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=0,aSizeX=window_x_len,aSizeY=window_y_len)], dtype='int16')
 
         # parse arithmetic expression
         tree = ast.parse(formula_str, mode='eval')
@@ -205,8 +202,12 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
 
         # calculate
         new_channel_values = EvalVisitor().visit(tree.body)
+
+        # set boundary values
+        new_channel_values[new_channel_values>255] = 255; new_channel_values[new_channel_values<0] = 0
+        new_channel_values_clipped = np.array(new_channel_values, dtype='uint8')
         
         # Add data to new channel in new Image
-        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
+        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values_clipped],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
 
     return vImageNew
