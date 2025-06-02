@@ -101,6 +101,7 @@ def XTBatch(vImarisApplication,fn,args):
     overwrite=messagebox.askyesno(
         'Save Options.',
         'Would you like to overwrite the existing existing images with modified images? \n Otherwise modified images will be saved as a separate files ending in "XTBatch.ims"'
+        '\n Warning: please select "No". The "Yes" option is not fully functional at this time.'
     )
     curr_image_path = vImarisApplication.GetCurrentFileName()
     # extract directory for current image
@@ -108,7 +109,11 @@ def XTBatch(vImarisApplication,fn,args):
     # make list of all .ims files in current directory
     all_image_paths=[f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
 
-    
+    # import pdb
+    # pdb.set_trace() 
+
+    # vImarisApplication.FileSave(curr_image_path,'')
+
     for image_path in all_image_paths:
         image_path=image_folder_path+'\\'+image_path
         vImarisApplication.FileOpen(image_path,'')
