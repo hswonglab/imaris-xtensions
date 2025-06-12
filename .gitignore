@@ -1,2 +1,2 @@
-**/__pycache__/
-python/archive/
+__pycache__/
+*.pyc

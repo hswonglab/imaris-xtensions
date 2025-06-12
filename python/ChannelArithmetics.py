@@ -143,7 +143,10 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
             left = self.visit(node.left)
             right = self.visit(node.right)
             if type(node.op) in allowed_operators: 
-                return allowed_operators[type(node.op)](left, right)
+                ret_val = allowed_operators[type(node.op)](left, right)
+                if np.any(ret_val < 0):
+                    print("Negative Numbers")
+                return ret_val
             else: 
                 raise ValueError("Unsupported operator: {}".format(node.op))
         
@@ -202,11 +205,8 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
 
         # calculate
         new_channel_values = EvalVisitor().visit(tree.body)
-
-        # bound values to 0, 255
-        new_channel_values_clipped = new_channel_values.clip(0,255)
         
         # Add data to new channel in new Image
-        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values_clipped],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
+        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
 
     return vImageNew
