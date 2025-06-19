@@ -20,6 +20,7 @@ whether all .ims files in the directory of the current image shall be modified
 
 Note (Amy, 2025-02-02): This function is in development; I've only tested it on addition so far and it seems to work but no guarentees use at your own risk!
 Note (Nicole, 2025-05-09): Thanks for the function Amy! Just trying to make it work for boolean expressions (setting clip from 0 to 1 at the end)
+Note (Amy, 2025-06-07): I've attempted to add and/or operations, also modified the clip for booleans
 '''
 
 #essential dependencies
@@ -135,11 +136,14 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
         ast.LtE: np.less_equal, 
         ast.GtE: np.greater_equal, 
         ast.Eq: np.equal, 
-        ast.NotEq: np.not_equal
+        ast.NotEq: np.not_equal, 
+        ast.And: np.logical_and, 
+        ast.Or: np.logical_or
     }
 
     # Define a class which can parse arithmetic expressions
     class EvalVisitor(ast.NodeVisitor): 
+        
         def visit_BinOp(self, node): 
             left = self.visit(node.left)
             right = self.visit(node.right)
@@ -152,7 +156,7 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
             if node.id.startswith("ch") and node.id in channel_values: 
                 return np.array(channel_values[node.id])
             raise ValueError("Undefined variable: {}".format(node.id))
-        
+            
         def visit_Compare(self, node):
             left = self.visit(node.left)
             if len(node.ops) != 1 or len(node.comparators) != 1: 
@@ -160,7 +164,18 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
             right = self.visit(node.comparators[0])
             op_type = type(node.ops[0])
             if op_type in allowed_operators: 
-                return np.where(allowed_operators[op_type](left, right), left, 0) # will be 0 everywhere where not fulfilled by the operation
+                return np.where(allowed_operators[op_type](left, right), True, False) 
+            else: 
+                raise ValueError("Undefined variable: {}".format(node.id))
+        
+        def visit_BoolOp(self, node):
+            if len(node.values) != 2: 
+                raise ValueError("Can only perform BoolOp with two values")
+            values0 = self.visit(node.values[0])
+            values1 = self.visit(node.values[1])
+            op_type = type(node.op)
+            if op_type in allowed_operators: 
+                return allowed_operators[type(node.op)](values0, values1)
             else: 
                 raise ValueError("Undefined variable: {}".format(node.id))
         
@@ -205,9 +220,10 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
         new_channel_values = EvalVisitor().visit(tree.body)
 
         # bound values to 0, 255
-        new_channel_values_clipped = new_channel_values.clip(0,1)
+        new_channel_values[new_channel_values>255] = 255; new_channel_values[new_channel_values<0] = 0
+        new_channel_values_clipped = np.array(new_channel_values, dtype='uint8')
         
         # Add data to new channel in new Image
-        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values_clipped],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
+        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
 
     return vImageNew
