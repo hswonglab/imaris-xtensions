@@ -19,6 +19,9 @@ This XTension supports batch operations. The user will be prompted to choose
 whether all .ims files in the directory of the current image shall be modified
 
 Note (Amy, 2025-02-02): This function is in development; I've only tested it on addition so far and it seems to work but no guarentees use at your own risk!
+Note (Nicole, 2025-05-09): Thanks for the function Amy! Just trying to make it work for boolean expressions (setting clip from 0 to 1 at the end)
+Note (Amy, 2025-06-07): I've attempted to add and/or operations, also modified the clip for booleans
+Note (Tomer, 2025-06-25): I've merged all the channel arithmetic scripts and did some improvments
 '''
 
 #essential dependencies
@@ -50,8 +53,33 @@ except Exception as e:
     batch_enabled=False
     input("Press enter to exit;")
 
+# Define allowed operators 
+ALLOWED_OPERATORS = {
+    ast.Add: (operator.add, "+"),
+    ast.Sub: (operator.sub, "-"),
+    ast.Mult: (operator.mul, "*"),
+    ast.Lt: (np.less, "<"),
+    ast.Gt: (np.greater, ">"),
+    ast.LtE: (np.less_equal, "<="),
+    ast.GtE: (np.greater_equal, ">="),
+    ast.Eq: (np.equal, "=="),
+    ast.NotEq: (np.not_equal, "!="),
+    ast.And: (np.logical_and, "and"),
+    ast.Or: (np.logical_or, "or"),
+}
+
 def get_formula_from_user():
-    formula_str = simpledialog.askstring("Input", "Enter channel arithmetic formula (e.g. ch1 + ch3 * ch10)")
+    formula_str = simpledialog.askstring(
+        "Input",
+        f"""
+        Enter channel arithmetic formula
+
+        * allowed operators: {', '.join(op[1] for op in ALLOWED_OPERATORS.values())}
+        * operands can be channel names (e.g. ch1, ch2, etc.) or numbers
+
+        (e.g. ch1 + ch3 * ch10)
+        """
+    )
     return formula_str
 
 def ChannelArithmetics(aImarisId):
@@ -77,6 +105,9 @@ def ChannelArithmetics(aImarisId):
 
     # Get prompt
     formula_str = get_formula_from_user()
+    if formula_str is None or formula_str.strip() == "":
+        print("Operation canceled by the user.")
+        return
 
     # Ask for batch
     if batch_enabled:
@@ -124,29 +155,15 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
     # Get channel names and indices, e.g. {"ch3": 2, "ch12": 11}
     channel_indices = {match: int(match[2:]) - 1 for match in re.findall(r'ch\d+', formula_str)}
 
-    # Define allowed operators 
-    allowed_operators = {
-        ast.Add: operator.add, 
-        ast.Sub: operator.sub, 
-        ast.Mult: operator.mul, 
-        ast.Lt: np.less, 
-        ast.Gt: np.greater, 
-        ast.LtE: np.less_equal, 
-        ast.GtE: np.greater_equal, 
-        ast.Eq: np.equal, 
-        ast.NotEq: np.not_equal
-    }
 
     # Define a class which can parse arithmetic expressions
     class EvalVisitor(ast.NodeVisitor): 
+        
         def visit_BinOp(self, node): 
             left = self.visit(node.left)
             right = self.visit(node.right)
-            if type(node.op) in allowed_operators: 
-                ret_val = allowed_operators[type(node.op)](left, right)
-                if np.any(ret_val < 0):
-                    print("Negative Numbers")
-                return ret_val
+            if type(node.op) in ALLOWED_OPERATORS: 
+                return ALLOWED_OPERATORS[type(node.op)][0](left, right)
             else: 
                 raise ValueError("Unsupported operator: {}".format(node.op))
         
@@ -154,15 +171,26 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
             if node.id.startswith("ch") and node.id in channel_values: 
                 return np.array(channel_values[node.id])
             raise ValueError("Undefined variable: {}".format(node.id))
-        
+            
         def visit_Compare(self, node):
             left = self.visit(node.left)
             if len(node.ops) != 1 or len(node.comparators) != 1: 
                 raise ValueError("Only simple comparisons are supported")
             right = self.visit(node.comparators[0])
             op_type = type(node.ops[0])
-            if op_type in allowed_operators: 
-                return np.where(allowed_operators[op_type](left, right), left, 0) # will be 0 everywhere where not fulfilled by the operation
+            if op_type in ALLOWED_OPERATORS: 
+                return ALLOWED_OPERATORS[op_type][0](left, right)
+            else: 
+                raise ValueError("Undefined variable: {}".format(node.id))
+        
+        def visit_BoolOp(self, node):
+            if len(node.values) != 2: 
+                raise ValueError("Can only perform BoolOp with two values")
+            values0 = self.visit(node.values[0])
+            values1 = self.visit(node.values[1])
+            op_type = type(node.op)
+            if op_type in ALLOWED_OPERATORS: 
+                return ALLOWED_OPERATORS[op_type][0](values0, values1)
             else: 
                 raise ValueError("Undefined variable: {}".format(node.id))
         
@@ -186,6 +214,8 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
     vYSize=vImage.GetSizeY()
 
     is_first = True
+    warn_clipping_max = True
+    warn_clipping_min = True
     for x,y,z in product(range(0,vXSize,vWindowSize),range(0,vYSize,vWindowSize),range(vNumSlices)):
         window_x_len=min(vWindowSize,vXSize-x)
         window_y_len=min(vWindowSize,vYSize-y)
@@ -193,7 +223,7 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
         for ch_name in channel_indices:
             channel_values[ch_name] = np.zeros((window_x_len,window_y_len))
             ch_index = channel_indices[ch_name]
-            channel_values[ch_name] = np.array([np.frombuffer(row,dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=0,aSizeX=window_x_len,aSizeY=window_y_len)])
+            channel_values[ch_name] = np.array([np.frombuffer(row, dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=0,aSizeX=window_x_len,aSizeY=window_y_len)], dtype='int16')
 
         # parse arithmetic expression
         tree = ast.parse(formula_str, mode='eval')
@@ -205,6 +235,17 @@ def RunChannelArithmetics(vImage, formula_str, verbose=True):
 
         # calculate
         new_channel_values = EvalVisitor().visit(tree.body)
+
+        # Clip values to 0-255 and convert to uint8
+        if warn_clipping_max and np.any(new_channel_values > 255):
+            print("\nWarning: Some values are above 255, clipping to 255.\n")
+            warn_clipping_max = False
+        if warn_clipping_min and np.any(new_channel_values < 0):
+            print("\nWarning: Some values are below 0, clipping to 0.\n")
+            warn_clipping_min = False
+
+        new_channel_values = np.clip(new_channel_values, 0, 255)
+        new_channel_values = np.array(new_channel_values, dtype='uint8')
         
         # Add data to new channel in new Image
         vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
