@@ -68,19 +68,61 @@ ALLOWED_OPERATORS = {
     ast.Or: (np.logical_or, "or"),
 }
 
-def get_formula_from_user():
-    formula_str = simpledialog.askstring(
-        "Input",
-        f"""
-        Enter channel arithmetic formula
+def get_formulas_from_user():
+    import tkinter.scrolledtext as scrolledtext
+    
+    # Create a custom dialog for multi-line input
+    dialog = tk.Toplevel()
+    dialog.title("Channel Arithmetic Formulas")
+    dialog.geometry("500x400")
+    dialog.transient()
+    dialog.grab_set()
+    
+    # Instructions label
+    instructions = tk.Label(dialog, text=f"""Enter channel arithmetic formulas (one per line):
 
-        * allowed operators: {', '.join(op[1] for op in ALLOWED_OPERATORS.values())}
-        * operands can be channel names (e.g. ch1, ch2, etc.) or numbers
+• Allowed operators: {', '.join(op[1] for op in ALLOWED_OPERATORS.values())}
+• Operands can be channel names (e.g. ch1, ch2, etc.) or numbers
+• Each formula will be executed sequentially and the result will be stored in a new channel
 
-        (e.g. ch1 + ch3 * ch10)
-        """
-    )
-    return formula_str
+Example:
+  ch1 + ch2
+  ch3 * 2
+  ch1 > ch2""", justify=tk.LEFT, anchor="w")
+    instructions.pack(pady=10, padx=10, fill=tk.X)
+    
+    # Text area for formulas
+    text_area = scrolledtext.ScrolledText(dialog, height=10, width=60)
+    text_area.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
+    text_area.focus()
+    
+    # Result variable
+    formulas = None
+    
+    def on_ok():
+        nonlocal formulas
+        content = text_area.get("1.0", tk.END).strip()
+        if content:
+            formulas = [line.strip() for line in content.split('\n') if line.strip()]
+        dialog.destroy()
+    
+    def on_cancel():
+        dialog.destroy()
+    
+    # Buttons
+    button_frame = tk.Frame(dialog)
+    button_frame.pack(pady=10)
+    
+    ok_button = tk.Button(button_frame, text="OK", command=on_ok, width=10)
+    ok_button.pack(side=tk.LEFT, padx=5)
+    
+    cancel_button = tk.Button(button_frame, text="Cancel", command=on_cancel, width=10)
+    cancel_button.pack(side=tk.LEFT, padx=5)
+    
+    # Wait for dialog to close
+    dialog.wait_window()
+    
+    return formulas
 
 def ChannelArithmetics(aImarisId):
     
@@ -103,9 +145,9 @@ def ChannelArithmetics(aImarisId):
     # Get Image
     vImage = vImarisApplication.GetImage(0)
 
-    # Get prompt
-    formula_str = get_formula_from_user()
-    if formula_str is None or formula_str.strip() == "":
+    # Get formulas
+    formulas = get_formulas_from_user()
+    if formulas is None or len(formulas) == 0:
         print("Operation canceled by the user.")
         return
 
@@ -120,7 +162,7 @@ def ChannelArithmetics(aImarisId):
 
     if batched: 
         try: 
-            XTBatch(vImarisApplication, RunChannelArithmetics, (formula_str, True))
+            XTBatch(vImarisApplication, RunChannelArithmetics, (formulas, True))
         except Exception as e: 
             print(e)
             input("Press enter to exit;")
@@ -130,7 +172,7 @@ def ChannelArithmetics(aImarisId):
             messagebox.showwarning('Only 1 image may be open at a time for this XTension')
             return
         try: 
-            vImageNew = RunChannelArithmetics(vImage, formula_str)
+            vImageNew = RunChannelArithmetics(vImage, formulas)
             vImarisApplication.SetImage(0, vImageNew)
         except Exception as e: 
             print(e)
@@ -139,7 +181,23 @@ def ChannelArithmetics(aImarisId):
     messagebox.showinfo('Complete', 'The XTension has terminated.')
 
 
-def RunChannelArithmetics(vImage, formula_str, verbose=True): 
+def RunChannelArithmetics(vImage, formulas, verbose=True): 
+
+    # Start with the original image
+    vImageCurrent = vImage.Clone()
+
+    # Process each formula sequentially
+    for i, formula_str in enumerate(formulas):
+        if verbose:
+            print(f"Processing formula {i+1}/{len(formulas)}: {formula_str}")
+        
+        # Apply the current formula
+        vImageCurrent = ApplyFormulaToImage(vImageCurrent, formula_str, verbose)
+    
+    return vImageCurrent
+
+
+def ApplyFormulaToImage(vImage, formula_str, verbose=True): 
 
     # Make a new image 
     vImageNew = vImage.Clone()
