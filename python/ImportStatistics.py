@@ -42,6 +42,8 @@ try:
     import ImarisLib
     # from XTBatch import XTBatch
     import tkinter as tk
+    from tkinter import messagebox
+    from tkinter import filedialog
     import pandas as pd
     import numpy as np
 except Exception as e:
@@ -95,8 +97,15 @@ def Main(aImarisId):
         vNumberSurpassItems=vScene.GetNumberOfChildren()
         # get all the items in the current scene
         NameObjects=[]
+        ObjectCounter=0 #counter for surface objects
+        ChildObjectDict={} #dictionary for converting surface object index to child index
+        print(vNumberSurpassItems)
         for vChildIndex in range(0,vNumberSurpassItems):
-            NameObjects.append(vScene.GetChild(vChildIndex).GetName())
+            vChild=vScene.GetChild(vChildIndex)
+            if vImarisApplication.GetFactory().IsSurfaces(vChild):
+                NameObjects.append(vChild.GetName())
+                ChildObjectDict[ObjectCounter]=vChildIndex
+                ObjectCounter+=1
 
         # make a tkinter object, ask user to select Imaris object to add statistics to, record selection, and close window once selected
         root = tk.Tk()
@@ -106,13 +115,19 @@ def Main(aImarisId):
         l=tk.Listbox(root,listvariable=name_list,selectmode=tk.SINGLE)
         l.config(width=0)
         l.pack()
+        # def action():
+        #     if l.curselection():
+        #         if vImarisApplication.GetFactory().IsSurfaces(vScene.GetChild(l.curselection()[0])):
+        #             root.quit()
+        #         else: 
+        #             print('Please select a surfaces object')
         def action():
             if l.curselection():
-                if vImarisApplication.GetFactory().IsSurfaces(vScene.GetChild(l.curselection()[0])):
-                    root.quit()
-                else:
-                    print('Please select a surfaces object')
-    
+                root.quit()
+            else:
+                print('Please make a selection')
+
+
         button = tk.Button(root, text="select",command=action)
         button.pack()
         root.mainloop()
@@ -142,7 +157,7 @@ def Main(aImarisId):
             raise(RuntimeError('The first column of the CSV must be "ID" or "Original ID"'))
         
         # get the selected surface objects
-        vObjects=vScene.GetChild(vObjectIndex)
+        vObjects=vScene.GetChild(ChildObjectDict[vObjectIndex])
         vSurfaces=vFactory.ToSurfaces(vObjects)
 
         # set up arguments for adding statistics
@@ -185,7 +200,7 @@ def Main(aImarisId):
 
 def ImportStatistics(aImarisId):
     # Initialize and launch Tk window, then hide it.
-    vRootTkWindow = Tk()
+    vRootTkWindow = tk.Tk()
     vRootTkWindow.withdraw()
 
     try:

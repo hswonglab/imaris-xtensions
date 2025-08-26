@@ -86,7 +86,7 @@ except Exception as e:
 #         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
 #     messagebox.showinfo('Complete', 'The XTension has terminated.')
 
-def XTBatch(vImarisApplication,fn,args):
+def XTBatch(vImarisApplication,fn,args,im_args=None):
     ''' Applies an operation to all .ims files in the directory of the currently opened image. 
     
     Parameters
@@ -115,6 +115,9 @@ def XTBatch(vImarisApplication,fn,args):
     # vImarisApplication.FileSave(curr_image_path,'')
 
     for image_path in all_image_paths:
+        if im_args is not None:
+            try:
+                im_argsim_args[image_path]
         image_path=image_folder_path+'\\'+image_path
         vImarisApplication.FileOpen(image_path,'')
         logging.info('----- Begin Editing %s -----', image_path)
@@ -125,7 +128,7 @@ def XTBatch(vImarisApplication,fn,args):
             return
         vImage = vImarisApplication.GetImage(0)
 
-        vImageNew = fn(vImage,*args)
+        vImageNew = fn(vImage,*args,*im_args[])
 
         vImarisApplication.SetImage(0, vImageNew)
 
