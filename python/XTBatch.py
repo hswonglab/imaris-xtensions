@@ -86,7 +86,7 @@ except Exception as e:
 #         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
 #     messagebox.showinfo('Complete', 'The XTension has terminated.')
 
-def XTBatch(vImarisApplication,fn,args,im_args=None):
+def XTBatch(vImarisApplication,fn,args,im_args_dict=None):
     ''' Applies an operation to all .ims files in the directory of the currently opened image. 
     
     Parameters
@@ -97,6 +97,10 @@ def XTBatch(vImarisApplication,fn,args,im_args=None):
         function to apply to images in each file
     args : tuple(...) 
         tuple of variables to be passed to fn as arguments
+    im_args_dict : dict (optional)
+        use this argument if any arguments of fn are specific to each image
+        dictionary with image names as keys and image-specific arguments as values  
+        the keys must match the full file names of the .ims files (without the extension) to be applied correctly
     '''
     overwrite=messagebox.askyesno(
         'Save Options.',
@@ -115,9 +119,13 @@ def XTBatch(vImarisApplication,fn,args,im_args=None):
     # vImarisApplication.FileSave(curr_image_path,'')
 
     for image_path in all_image_paths:
-        if im_args is not None:
+        if im_args_dict is not None:
             try:
-                im_argsim_args[image_path]
+                im_args=im_args_dict[image_path]
+            except KeyError:
+                logging.warning(f'Attempted to find image-specific argument for {image_path} but none was found.')
+                logging.info(f'Skipping image {image_path}')
+                continue
         image_path=image_folder_path+'\\'+image_path
         vImarisApplication.FileOpen(image_path,'')
         logging.info('----- Begin Editing %s -----', image_path)
@@ -128,7 +136,7 @@ def XTBatch(vImarisApplication,fn,args,im_args=None):
             return
         vImage = vImarisApplication.GetImage(0)
 
-        vImageNew = fn(vImage,*args,*im_args[])
+        vImageNew = fn(vImage,*(args+im_args))
 
         vImarisApplication.SetImage(0, vImageNew)
 

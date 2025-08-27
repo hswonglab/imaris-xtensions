@@ -40,7 +40,7 @@ try:
     import logging
     import traceback
     import ImarisLib
-    # from XTBatch import XTBatch
+    from XTBatch import XTBatch
     import tkinter as tk
     from tkinter import messagebox
     from tkinter import filedialog
