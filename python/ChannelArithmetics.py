@@ -68,13 +68,19 @@ ALLOWED_OPERATORS = {
     ast.Or: (np.logical_or, "or"),
 }
 
+# Define allowed functions
+ALLOWED_FUNCTIONS = {
+    'max': np.maximum,
+    'min': np.minimum,
+}
+
 def get_formulas_from_user():
     import tkinter.scrolledtext as scrolledtext
     
     # Create a custom dialog for multi-line input
     dialog = tk.Toplevel()
     dialog.title("Channel Arithmetic Formulas")
-    dialog.geometry("500x400")
+    dialog.geometry("500x500")
     dialog.transient()
     dialog.grab_set()
     
@@ -82,13 +88,15 @@ def get_formulas_from_user():
     instructions = tk.Label(dialog, text=f"""Enter channel arithmetic formulas (one per line):
 
 • Allowed operators: {', '.join(op[1] for op in ALLOWED_OPERATORS.values())}
+• Allowed functions: {', '.join(ALLOWED_FUNCTIONS.keys())}
 • Operands can be channel names (e.g. ch1, ch2, etc.) or numbers
 • Each formula will be executed sequentially and the result will be stored in a new channel
 
 Example:
   ch1 + ch2
   ch3 * 2
-  ch1 > ch2""", justify=tk.LEFT, anchor="w")
+  ch1 > ch2
+  max(ch1, ch2, ch8)""", justify=tk.LEFT, anchor="w")
     instructions.pack(pady=10, padx=10, fill=tk.X)
     
     # Text area for formulas
@@ -229,6 +237,20 @@ def ApplyFormulaToImage(vImage, formula_str, verbose=True):
             if node.id.startswith("ch") and node.id in channel_values: 
                 return np.array(channel_values[node.id])
             raise ValueError("Undefined variable: {}".format(node.id))
+        
+        def visit_Call(self, node):
+            if isinstance(node.func, ast.Name) and node.func.id in ALLOWED_FUNCTIONS:
+                func = ALLOWED_FUNCTIONS[node.func.id]
+                args = [self.visit(arg) for arg in node.args]
+                if len(args) < 2:
+                    raise ValueError(f"Function {node.func.id} requires at least 2 arguments")
+                # For functions like max/min that take multiple arguments, apply iteratively
+                result = args[0]
+                for arg in args[1:]:
+                    result = func(result, arg)
+                return result
+            else:
+                raise ValueError(f"Unsupported function: {node.func.id if isinstance(node.func, ast.Name) else 'unknown'}")
             
         def visit_Compare(self, node):
             left = self.visit(node.left)
