@@ -10,17 +10,15 @@ This script contains functions to enable batch operation of XTensions
 '''
 
 try:
-    import traceback  
     import logging
-    import ImarisLib
     import os
-    from tqdm.contrib.itertools import product
+    import traceback
+
+    import ImarisLib
     import numpy as np
     from tkinter import *
     from tkinter import messagebox
     from tkinter import filedialog
-    from utils import GetImageSubSliceArray
-    from matplotlib import pyplot as plt
 except Exception as e:
     print(e)
     input("Press enter to exit;")
@@ -109,6 +107,7 @@ def XTBatch(vImarisApplication,fn,args=None,im_args_dict=None,operate_on_image=T
         if False, fn will have direct access to the IApplication object, which can operate on both the image and the associated surpass objects  
             XTBatch will expect fn to interact directly with the IApplication object, and save the state of the file after fn is applied 
     '''
+    args = args or []
     # overwrite=messagebox.askyesno(
     #     'Save Options.',
     #     'Would you like to overwrite the existing existing images with modified images? \n Otherwise modified images will be saved as a separate files ending in "XTBatch.ims"'
@@ -135,6 +134,8 @@ def XTBatch(vImarisApplication,fn,args=None,im_args_dict=None,operate_on_image=T
                 logging.warning(f'Attempted to find image-specific argument for {image_path} but none was found.')
                 logging.info(f'Skipping image {image_path}')
                 continue
+        else:
+            im_args = []
         image_path=image_folder_path+'\\'+image_path
         vImarisApplication.FileOpen(image_path,'')
         logging.info('----- Begin Editing %s -----', image_path)
