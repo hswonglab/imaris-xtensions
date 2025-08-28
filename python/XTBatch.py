@@ -29,7 +29,7 @@ except Exception as e:
 
 def XTBatch(
     vImarisApplication, fn, args=None, im_args_dict=None,
-    operate_on_image=True
+    operate_on_image=True, save=True
 ):
     '''Applies an operation to all .ims files in the directory of the currently-open image.
     
@@ -56,6 +56,10 @@ def XTBatch(
         can operate on both the image and the associated surpass object.
         XTBatch will expect fn to interact directly with the IApplication
         object, and save the state of the file after fn is applied
+    save : bool
+        Whether to save the file after `fn` has completed. May be useful to
+        disable for XTensions that retrieve information from images without
+        modifying them.
     '''
     args = args or []
     # overwrite=messagebox.askyesno(
@@ -84,13 +88,14 @@ def XTBatch(
         else:
             im_args = []
         image_path=image_folder_path+'\\'+image_path
-        vImarisApplication.FileOpen(image_path,'')
+        vImarisApplication.FileOpen(image_path, '')
         logging.info('----- Begin Editing %s -----', image_path)
-            # Get the image and channels
         vNumberOfImages = vImarisApplication.GetNumberOfImages()
         if vNumberOfImages != 1:
             messagebox.showwarning('Only 1 image may be open at a time for this XTension')
             return
+
+        # Run fn on image.
         if operate_on_image:
             vImage = vImarisApplication.GetImage(0)
 
@@ -100,12 +105,14 @@ def XTBatch(
         else:
             fn(vImarisApplication,*args,*im_args)
 
+        # Save image.
         if overwrite:
             new_image_path=image_path
         else:
             path_strings=image_path.split('.')
             path_strings[-2]+='XTBatch'
             new_image_path='.'.join(path_strings)
-        logging.info('Saving changes to %s', new_image_path)
-        vImarisApplication.FileSave(new_image_path,'')
+        if save:
+            logging.info('Saving changes to %s', new_image_path)
+            vImarisApplication.FileSave(new_image_path,'')
         logging.info('----- Done Editing %s -----', image_path)
