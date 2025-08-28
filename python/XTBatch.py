@@ -86,27 +86,36 @@ except Exception as e:
 #         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
 #     messagebox.showinfo('Complete', 'The XTension has terminated.')
 
-def XTBatch(vImarisApplication,fn,args,im_args_dict=None):
+def XTBatch(vImarisApplication,fn,args=None,im_args_dict=None,operate_on_image=True):
     ''' Applies an operation to all .ims files in the directory of the currently opened image. 
     
     Parameters
     ----------
     vImarisApplication : IApplication
         Imaris application object currently connected
-    fn : Callable[ [IDataset, *args], IDataset ]
-        function to apply to images in each file
-    args : tuple(...) 
+    fn : Callable[ [IDataset, *args], IDataset ] or Callable[ [IApplication, *args], None ]
+        function to apply to each file
+        see documentation for operate_on_images for more information on input and output types
+    args : tuple(...) (optional)
         tuple of variables to be passed to fn as arguments
-    im_args_dict : dict (optional)
+    im_args_dict : dict[str:tuple(...)] (optional)
         use this argument if any arguments of fn are specific to each image
         dictionary with image names as keys and image-specific arguments as values  
         the keys must match the full file names of the .ims files (without the extension) to be applied correctly
+        the values must be packed in a tuple since it will be unpacked before being passed to fn
+    operate_on_image : bool 
+        if True, fn should operate directly on the image (IDataset object) 
+            XTBatch will expect a new image to be returned by each call to fn, replace the existing image with it, then save the file with the new image
+        if False, fn will have direct access to the IApplication object, which can operate on both the image and the associated surpass objects  
+            XTBatch will expect fn to interact directly with the IApplication object, and save the state of the file after fn is applied 
     '''
-    overwrite=messagebox.askyesno(
-        'Save Options.',
-        'Would you like to overwrite the existing existing images with modified images? \n Otherwise modified images will be saved as a separate files ending in "XTBatch.ims"'
-        '\n Warning: please select "No". The "Yes" option is not fully functional at this time.'
-    )
+    # overwrite=messagebox.askyesno(
+    #     'Save Options.',
+    #     'Would you like to overwrite the existing existing images with modified images? \n Otherwise modified images will be saved as a separate files ending in "XTBatch.ims"'
+    #     '\n Warning: please select "No". The "Yes" option is not fully functional at this time.'
+    # )
+    overwrite=False #Imaris does not handle the opened file correctly for overwriting in this implementation
+
     curr_image_path = vImarisApplication.GetCurrentFileName()
     # extract directory for current image
     image_folder_path='\\'.join(curr_image_path.split('\\')[:-1])
@@ -121,7 +130,7 @@ def XTBatch(vImarisApplication,fn,args,im_args_dict=None):
     for image_path in all_image_paths:
         if im_args_dict is not None:
             try:
-                im_args=im_args_dict[image_path]
+                im_args=im_args_dict[image_path[:-4]]
             except KeyError:
                 logging.warning(f'Attempted to find image-specific argument for {image_path} but none was found.')
                 logging.info(f'Skipping image {image_path}')
@@ -134,11 +143,14 @@ def XTBatch(vImarisApplication,fn,args,im_args_dict=None):
         if vNumberOfImages != 1:
             messagebox.showwarning('Only 1 image may be open at a time for this XTension')
             return
-        vImage = vImarisApplication.GetImage(0)
+        if operate_on_image:
+            vImage = vImarisApplication.GetImage(0)
 
-        vImageNew = fn(vImage,*(args+im_args))
+            vImageNew = fn(vImage,*args,*im_args)
 
-        vImarisApplication.SetImage(0, vImageNew)
+            vImarisApplication.SetImage(0, vImageNew)
+        else:
+            fn(vImarisApplication,*args,*im_args)
 
         if overwrite:
             new_image_path=image_path
