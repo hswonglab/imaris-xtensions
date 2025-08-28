@@ -1,12 +1,14 @@
- #  LinearUnmixing: An Imaris XTension to apply linear unmixing to an image
+#  XTBatch: A wrapper that can be applied to Imaris XTensions to enable batching.
 #
 #  Copyright © 2023 MASSACHUSETTS INSTITUTE OF TECHNOLOGY.
 #  All rights reserved.
 #
-#  Written by Eric Gai.
+#  Written by Eric Gai and Christopher Skalnik.
 
 '''
-This script contains functions to enable batch operation of XTensions
+This script contains functions to enable batch operation of XTensions. To use,
+import the XTBatch function into the script implementing your XTension. Then
+call XTBatch with a function implementing your XTension as an argument.
 '''
 
 try:
@@ -24,68 +26,12 @@ except Exception as e:
     input("Press enter to exit;")
     raise
 
-# def Main(aImarisId):
 
-#     # Create an ImarisLib object
-#     vImarisLib = ImarisLib.ImarisLib()
-
-#     # Get an imaris object with id aImarisId
-#     vImarisApplication = vImarisLib.GetApplication(aImarisId)
-
-#     # Check if the object is valid
-#     if vImarisApplication is None:
-#         messagebox.showerror('Error', f'Failed to connect to Imaris application (id={aImarisId})')
-#         return
-    
-#     print(f'Connected to Imaris application (id={aImarisId})')
-    
-#     curr_image_path = vImarisApplication.GetCurrentFileName()
-#     # extract directory for current image
-#     image_folder_path='\\'.join(curr_image_path.split('\\')[:-1])
-#     # make list of all .ims files in current directory
-#     all_image_paths=[f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
-#     for image_path in all_image_paths:
-#         # logpath = image_path + '.log'
-#         # logging.basicConfig(format=LOG_FORMAT, filename=logpath, level=logging.INFO)
-#         image_path=image_folder_path+'\\'+image_path
-#         vImarisApplication.FileOpen(image_path,'')
-#         logging.info('----- Begin Editing %s -----', image_path)
-#             # Get the image and channels
-#         vNumberOfImages = vImarisApplication.GetNumberOfImages()
-#         if vNumberOfImages != 1:
-#             messagebox.showwarning('Only 1 image may be open at a time for this XTension')
-#             return
-#         vImage = vImarisApplication.GetImage(0)
-
-#         vImageNew = configure_channels(vImage,vNewChannelNames,vNewChannelColors,confirmed=True)
-
-#         vImarisApplication.SetImage(0, vImageNew)
-
-#         path_strings=image_path.split('.')
-#         path_strings[-2]+='XTBatch'
-#         new_image_path='.'.join(path_strings)
-#         logging.info('Saving changes to %s', new_image_path)
-#         vImarisApplication.FileSave(new_image_path,'')
-#         logging.info('----- Done Editing %s -----', image_path)
-
-    
-    # path_strings=image_path.split('.')
-    # path_strings[-2]+='XT'
-
-
-# def XTBatch(aImarisId):
-#     # Initialize and launch Tk window, then hide it.
-#     vRootTkWindow = Tk()
-#     vRootTkWindow.withdraw()
-
-#     try:
-#         Main(aImarisId)
-#     except Exception as exception:
-#         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
-#     messagebox.showinfo('Complete', 'The XTension has terminated.')
-
-def XTBatch(vImarisApplication,fn,args=None,im_args_dict=None,operate_on_image=True):
-    ''' Applies an operation to all .ims files in the directory of the currently opened image. 
+def XTBatch(
+    vImarisApplication, fn, args=None, im_args_dict=None,
+    operate_on_image=True
+):
+    '''Applies an operation to all .ims files in the directory of the currently-open image.
     
     Parameters
     ----------
@@ -97,15 +43,19 @@ def XTBatch(vImarisApplication,fn,args=None,im_args_dict=None,operate_on_image=T
     args : tuple(...) (optional)
         tuple of variables to be passed to fn as arguments
     im_args_dict : dict[str:tuple(...)] (optional)
-        use this argument if any arguments of fn are specific to each image
-        dictionary with image names as keys and image-specific arguments as values  
-        the keys must match the full file names of the .ims files (without the extension) to be applied correctly
-        the values must be packed in a tuple since it will be unpacked before being passed to fn
+        Arguments to `fn` that should override the default arguments in `args`
+        for a particular image, expressed as a mapping from image path
+        (excluding the `.ims` extension) to the arguments (as a tuple) that
+        should be used instead of `args` for that image.
     operate_on_image : bool 
-        if True, fn should operate directly on the image (IDataset object) 
-            XTBatch will expect a new image to be returned by each call to fn, replace the existing image with it, then save the file with the new image
-        if False, fn will have direct access to the IApplication object, which can operate on both the image and the associated surpass objects  
-            XTBatch will expect fn to interact directly with the IApplication object, and save the state of the file after fn is applied 
+        If True, fn should operate directly on the image (IDataset object).
+        XTBatch will expect a new image to be returned by each call to fn,
+        replace the existing image with it, then save the file with the new
+        image.
+        If False, fn will have direct access to the IApplication object, which
+        can operate on both the image and the associated surpass object.
+        XTBatch will expect fn to interact directly with the IApplication
+        object, and save the state of the file after fn is applied
     '''
     args = args or []
     # overwrite=messagebox.askyesno(
@@ -120,9 +70,6 @@ def XTBatch(vImarisApplication,fn,args=None,im_args_dict=None,operate_on_image=T
     image_folder_path='\\'.join(curr_image_path.split('\\')[:-1])
     # make list of all .ims files in current directory
     all_image_paths=[f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
-
-    # import pdb
-    # pdb.set_trace() 
 
     # vImarisApplication.FileSave(curr_image_path,'')
 
