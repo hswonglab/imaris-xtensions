@@ -24,6 +24,9 @@ exactly these columns, in this order.
 
 This XTension supports batch operations. The user will be prompted to choose 
 whether all .ims files in the directory of the current image shall be modified. 
+When running in batch mode, the CSV file should also contain a column titled 
+'Original Image Name', which must agree exactly with the names of the .ims files
+(without the .ims suffix) to which the statistics will be added. 
 
 Whenever this XTension operates on a file, it tracks all changes in a log file.
 If the file currently opened is at path `path`, then the log file is at
@@ -73,130 +76,157 @@ def Main(aImarisId):
     logging.basicConfig(format=LOG_FORMAT, filename=logpath, level=logging.INFO)
     logging.info('----- Begin Editing %s -----', image_path)
 
-    # batch functionalities are not yet compatible with this XTension
-    # batched=tk.messagebox.askyesno(
-    #     'Batched Operation.',
-    #     'Would you like to apply changes to all .ims files in this folder?'
-    # )
+    # Get the image and channels
+    vNumberOfImages = vImarisApplication.GetNumberOfImages()
+    if vNumberOfImages != 1:
+        tk.messagebox.showwarning('Only 1 image may be open at a time for this XTension')
+        return
 
-    batched=False
+    # Get the factory
+    vFactory = vImarisApplication.GetFactory()
+    # Get the current scene
+    vScene = vImarisApplication.GetSurpassScene()
+    vNumberSurpassItems=vScene.GetNumberOfChildren()
+    # get all the items in the current scene
+    NameObjects=[]
+    ObjectCounter=0 #counter for surface objects
+    ChildObjectDict={} #dictionary for converting surface object index to child index
+    for vChildIndex in range(0,vNumberSurpassItems):
+        vChild=vScene.GetChild(vChildIndex)
+        if vFactory.IsSurfaces(vChild):
+            NameObjects.append(vChild.GetName())
+            ChildObjectDict[ObjectCounter]=vChildIndex
+            ObjectCounter+=1
 
-    if batched:
-        pass
-    else:
-        # Get the image and channels
-        vNumberOfImages = vImarisApplication.GetNumberOfImages()
-        if vNumberOfImages != 1:
-            tk.messagebox.showwarning('Only 1 image may be open at a time for this XTension')
-            return
-
-        # Get the factory
-        vFactory = vImarisApplication.GetFactory()
-        # Get the current scene
-        vScene = vImarisApplication.GetSurpassScene()
-        vNumberSurpassItems=vScene.GetNumberOfChildren()
-        # get all the items in the current scene
-        NameObjects=[]
-        ObjectCounter=0 #counter for surface objects
-        ChildObjectDict={} #dictionary for converting surface object index to child index
-        print(vNumberSurpassItems)
-        for vChildIndex in range(0,vNumberSurpassItems):
-            vChild=vScene.GetChild(vChildIndex)
-            if vImarisApplication.GetFactory().IsSurfaces(vChild):
-                NameObjects.append(vChild.GetName())
-                ChildObjectDict[ObjectCounter]=vChildIndex
-                ObjectCounter+=1
-
-        # make a tkinter object, ask user to select Imaris object to add statistics to, record selection, and close window once selected
-        root = tk.Tk()
-        name_list = tk.StringVar(root,value=tuple(NameObjects))
-        question_label = tk.Label(root, text="Select the surface object to which the statistic will be added")
-        question_label.pack()
-        l=tk.Listbox(root,listvariable=name_list,selectmode=tk.SINGLE)
-        l.config(width=0)
-        l.pack()
-        # def action():
-        #     if l.curselection():
-        #         if vImarisApplication.GetFactory().IsSurfaces(vScene.GetChild(l.curselection()[0])):
-        #             root.quit()
-        #         else: 
-        #             print('Please select a surfaces object')
-        def action():
-            if l.curselection():
-                root.quit()
-            else:
-                print('Please make a selection')
-
-
-        button = tk.Button(root, text="select",command=action)
-        button.pack()
-        root.mainloop()
-        vObjectIndex=l.curselection()[0]
-        root.destroy()
-        logging.info(f'User selected {NameObjects[vObjectIndex]} to add statistics')
-
-        # vImarisApplication.SetImage(0, vImageNew)
-        # logging.info('Asking user to save image.')
-        # saved = tk.messagebox.askyesno(
-        #     'Save changes.',
-        #     'Please save or discard changes. Did you save the file?'
-        # )
-        # logging.info('User reports that they saved changes: %s', saved)
-
-        with tk.filedialog.askopenfile(mode='r', title='Select statistic CSV file to be imported') as f:
-            logging.info(f'Reading statistics from {f.name}')
-            new_stats_df=pd.read_csv(f)
-
-        # check formatting of statistics dataframe
-
-        if new_stats_df.iloc[:,0].name=='OriginalID':
-            id='OriginalID'
-        elif new_stats_df.iloc[:,0].name=='ID':
-            id='ID'
+    # make a tkinter object, ask user to select Imaris object to add statistics to, record selection, and close window once selected
+    root = tk.Tk()
+    name_list = tk.StringVar(root,value=tuple(NameObjects))
+    question_label = tk.Label(root, text="Select the surface object to which the statistic will be added")
+    question_label.pack()
+    l=tk.Listbox(root,listvariable=name_list,selectmode=tk.SINGLE)
+    l.config(width=0)
+    l.pack()
+    # def action():
+    #     if l.curselection():
+    #         if vImarisApplication.GetFactory().IsSurfaces(vScene.GetChild(l.curselection()[0])):
+    #             root.quit()
+    #         else: 
+    #             print('Please select a surfaces object')
+    def action():
+        if l.curselection():
+            root.quit()
         else:
-            raise(RuntimeError('The first column of the CSV must be "ID" or "Original ID"'))
-        
-        # get the selected surface objects
-        vObjects=vScene.GetChild(ChildObjectDict[vObjectIndex])
-        vSurfaces=vFactory.ToSurfaces(vObjects)
+            print('Please make a selection')
 
-        # set up arguments for adding statistics
-        vIndividualSurfaceIDs=new_stats_df[id]
-        vIndividualStatUnits=[None]*len(vIndividualSurfaceIDs)
-        #Create Tuple list for each surface in time
-        vSurfaceStatFactors=(['Surface']*len(vIndividualSurfaceIDs),
-                    [str(1)]*len(vIndividualSurfaceIDs))
-        vSurfaceStatFactorName=['Category','Time']
-        stat_name_list=vSurfaces.GetStatisticsNames()
+
+    button = tk.Button(root, text="select",command=action)
+    button.pack()
+    root.mainloop()
+    vObjectIndex=l.curselection()[0]
+    root.destroy()
+    vObjectName=NameObjects[vObjectIndex]
+    logging.info(f'User selected {vObjectName} to add statistics')
+
+    batched=tk.messagebox.askyesno(
+        'Batched Operation.',
+        'Would you like to apply changes to all .ims files in this folder?'
+    )    
+
+    with tk.filedialog.askopenfile(mode='r', title='Select statistic CSV file to be imported') as f:
+        logging.info(f'Reading statistics from {f.name}')
+        new_stats_df=pd.read_csv(f)
+
+
+    # check formatting of statistics dataframe
+    if 'OriginalID' in new_stats_df.columns:
+        id='OriginalID'
+    elif 'ID' in new_stats_df.columns:
+        id='ID'
+    else:
+        raise(RuntimeError('The CSV must contain column "ID" or "Original ID"'))
+    
+    if batched:
+        if 'Original Image Name' not in new_stats_df.columns:
+            raise(RuntimeError('The CSV must contain column "Original Image Name" for batched operation'))
+        
+        grouped=new_stats_df.groupby('Original Image Name')
+        stats_df_dict={image:(df.drop('Original Image Name',axis=1),) for image,df in grouped}
+        XTBatch(vImarisApplication,ImageImportStatistics,args=(vObjectName,id),im_args_dict=stats_df_dict,operate_on_image=False)
+        
+    else:
+        # get the selected surface objects
+
+        ImageImportStatistics(vImarisApplication,vObjectName,new_stats_df,id)
+        logging.info('Asking user to save image.')
+        saved = tk.messagebox.askyesno(
+            'Save changes.',
+            'Please save or discard changes. Did you save the file?'
+        )
+        logging.info('User reports that they saved changes: %s', saved)        
+
+        logging.info('----- Done Editing %s -----', image_path)
+
+    print('Changes complete.')
+
+def ImageImportStatistics(vImarisApplication,vObjectName,id,new_stats_df):
+        # Get the factory
+    vFactory = vImarisApplication.GetFactory()
+    # Get the current scene
+    vScene = vImarisApplication.GetSurpassScene()
+    # get all the items in the current scene
+    vObjectIndex=None
+    for vChildIndex in range(0,vScene.GetNumberOfChildren()):
+        vChild=vScene.GetChild(vChildIndex)
+        try:
+            vChildName=vChild.GetName()
+        except AttributeError:
+            continue
+        if vChildName==vObjectName:
+            vObjectIndex=vChildIndex
+    if vObjectIndex is None:
+        logging.warning(f'Cannot find object {vObjectName}')
+        return None 
+    
+    vObjects=vScene.GetChild(vObjectIndex)
+    vSurfaces=vFactory.ToSurfaces(vObjects)
+
+    # set up arguments for adding statistics
+    vIndividualSurfaceIDs=new_stats_df[id]
+    vIndividualStatUnits=[None]*len(vIndividualSurfaceIDs)
+    #Create Tuple list for each surface in time
+    vSurfaceStatFactors=(['Surface']*len(vIndividualSurfaceIDs),
+                [str(1)]*len(vIndividualSurfaceIDs))
+    vSurfaceStatFactorName=['Category','Time']
+        # stat_name_list=vSurfaces.GetStatisticsNames()
 
         # vAllTimeIndices = []
         # for vNextSurface in range (vNumberOfSurfaces):
         #     vAllTimeIndices.append(vSurfaces.GetTimeIndex(vNextSurface))
         # print(vAllTimeIndices,len(vAllTimeIndices))
         ##############################################################################
-        for i in range(1,len(new_stats_df.columns)):
-            # get name of statistic
-            new_stat_name=new_stats_df.iloc[:,i].name
-            if new_stat_name in stat_name_list:
-                proceed = tk.messagebox.askyesno(
-                    'Save changes.',
-                    f'{NameObjects[vObjectIndex]} already contains statistic {new_stat_name} \n Would you like to overwrite the existing values?'
-                )
-                logging.info(f'Found existing statistic {new_stat_name}. User chose to overwrite: {proceed}.')
-            else:
-                proceed=True
-            if proceed:
-                vSurfaceStatNames=[new_stat_name]*len(vIndividualSurfaceIDs)
-                # get value of statistics
-                vSurfaceStatValues=list(new_stats_df.iloc[:,i])
-                # add statistic to surface
-                vSurfaces.AddStatistics(vSurfaceStatNames, vSurfaceStatValues,
-                                        vIndividualStatUnits, vSurfaceStatFactors,
-                                        vSurfaceStatFactorName, vIndividualSurfaceIDs)
-                logging.info(f'Added new statistic {new_stat_name}.')
-        logging.info('----- Done Editing %s -----', image_path)
+    for i in range(1,len(new_stats_df.columns)):
+        # get name of statistic
+        new_stat_name=new_stats_df.iloc[:,i].name
+        # if new_stat_name in stat_name_list:
+        #     proceed = tk.messagebox.askyesno(
+        #         'Save changes.',
+        #         f'{NameObjects[vObjectIndex]} already contains statistic {new_stat_name} \n Would you like to overwrite the existing values?'
+        #     )
+        #     logging.info(f'Found existing statistic {new_stat_name}. User chose to overwrite: {proceed}.')
+        # else:
+        #     proceed=True
+        # if proceed:
+        vSurfaceStatNames=[new_stat_name]*len(vIndividualSurfaceIDs)
+        # get value of statistics
+        vSurfaceStatValues=list(new_stats_df.iloc[:,i])
+        # add statistic to surface
+        vSurfaces.AddStatistics(vSurfaceStatNames, vSurfaceStatValues,
+                                vIndividualStatUnits, vSurfaceStatFactors,
+                                vSurfaceStatFactorName, vIndividualSurfaceIDs)
+        logging.info(f'Added new statistic {new_stat_name}.')
+    
 
-    print('Changes complete.')
+
 
 def ImportStatistics(aImarisId):
     # Initialize and launch Tk window, then hide it.
