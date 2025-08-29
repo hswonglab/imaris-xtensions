@@ -22,10 +22,11 @@ try:
     import traceback
 
     import ImarisLib
-
     from tkinter import *
     from tkinter import messagebox
     from tkinter import filedialog
+
+    from dialog import flexible_mbox
 except Exception as e:
     print(e)
     input('Press enter to exit.')
@@ -81,13 +82,34 @@ def GetDimensions(aImarisId):
 
     print(f'Connected to Imaris application (id={aImarisId})')
 
-    batched = batch_enabled & messagebox.askyesno(
-        'Batched Operation',
-        'Would you like to run this XTension on all .ims files in this folder?',
-    )
-    if batched:
+    if not batch_enabled:
+        batching = 'Only the open file'
+    else:
+        batching = flexible_mbox(
+            'Batched Operation',
+            'Which of the .ims files in this folder would you like to run this XTension on?',
+            ['All', 'Some', 'Only the open file']
+        )
+
+    if batching == 'All':
         try:
             XTBatch(vImarisApplication, Main, operate_on_image=False, save=False)
+        except Exception as exception:
+            print(traceback.print_exception(type(exception), exception, exception.__traceback__))
+            messagebox.showerror('Error', 'Failure while running batch.')
+            return
+    elif batching == 'Some':
+        paths = filedialog.askopenfilenames(
+            title='Select the .ims files to operate on.',
+            initialdir=os.path.dirname(vImarisApplication.GetCurrentFileName()),
+            filetypes=[('IMS', '*.ims')],
+        )
+        filenames = [os.path.basename(path) for path in paths]
+        for path in paths:
+            if not path.endswith('.ims'):
+                raise RuntimeError(f'Selected file not an .ims file: {path}')
+        try:
+            XTBatch(vImarisApplication, Main, operate_on_image=False, save=False, filenames=filenames)
         except Exception as exception:
             print(traceback.print_exception(type(exception), exception, exception.__traceback__))
             messagebox.showerror('Error', 'Failure while running batch.')
@@ -97,9 +119,8 @@ def GetDimensions(aImarisId):
         if vNumberOfImages != 1:
             messagebox.showerror('Error', 'Only 1 image may be open at a time for this XTension')
             return
-        vImage = vImarisApplication.GetImage(0)
         try:
-            Main(vImage)
+            Main(vImarisApplication)
         except Exception as exception:
             print(traceback.print_exception(type(exception), exception, exception.__traceback__))
             messagebox.showerror('Error', 'Failure while running un-batched.')
