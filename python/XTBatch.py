@@ -29,7 +29,7 @@ except Exception as e:
 
 def XTBatch(
     vImarisApplication, fn, args=None, im_args_dict=None,
-    operate_on_image=True, save=True
+    operate_on_image=True, save=True, filenames=None
 ):
     '''Applies an operation to all .ims files in the directory of the currently-open image.
     
@@ -60,6 +60,9 @@ def XTBatch(
         Whether to save the file after `fn` has completed. May be useful to
         disable for XTensions that retrieve information from images without
         modifying them.
+    filenames : None or list(str) (optional)
+        List of names of ims files to operate on. If not specified, XTension
+        will run on all ims files in directory of currently-open image.
     '''
     args = args or []
     # overwrite=messagebox.askyesno(
@@ -72,22 +75,21 @@ def XTBatch(
     curr_image_path = vImarisApplication.GetCurrentFileName()
     # extract directory for current image
     image_folder_path='\\'.join(curr_image_path.split('\\')[:-1])
-    # make list of all .ims files in current directory
-    all_image_paths=[f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
+    filenames = filenames or [f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
 
     # vImarisApplication.FileSave(curr_image_path,'')
 
-    for image_path in all_image_paths:
+    for filename in filenames:
         if im_args_dict is not None:
             try:
-                im_args=im_args_dict[image_path[:-4]]
+                im_args=im_args_dict[filename[:-4]]
             except KeyError:
-                logging.warning(f'Attempted to find image-specific argument for {image_path} but none was found.')
-                logging.info(f'Skipping image {image_path}')
+                logging.warning(f'Attempted to find image-specific argument for {filename} but none was found.')
+                logging.info(f'Skipping image {filename}')
                 continue
         else:
             im_args = []
-        image_path=image_folder_path+'\\'+image_path
+        image_path=image_folder_path + '\\' + filename
         vImarisApplication.FileOpen(image_path, '')
         logging.info('----- Begin Editing %s -----', image_path)
         vNumberOfImages = vImarisApplication.GetNumberOfImages()
