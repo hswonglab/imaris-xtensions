@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 import traceback
+from tqdm import tqdm
 
 import ImarisLib
 import Imaris
@@ -60,7 +61,7 @@ def Main(vImarisApplication):
     with filedialog.askopenfile(mode='r', title='Select json representing Imaris surfaces') as f:
         vSurfaceJson = json.load(f)
     
-    for vSurfaceJsonData in vSurfaceJson:
+    for vSurfaceJsonData in tqdm(vSurfaceJson):
         
         # create aSurfaceData dataset
         aSurfaceData = vImarisApplication.GetFactory().CreateDataSet()
