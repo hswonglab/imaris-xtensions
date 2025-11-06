@@ -64,7 +64,7 @@ def Main(vImarisApplication):
         
         # create aSurfaceData dataset
         aSurfaceData = vImarisApplication.GetFactory().CreateDataSet()
-        vData = np.array(vSurfaceJsonData['mask'], dtype=np.uint16)
+        vData = np.array(vSurfaceJsonData['mask'], dtype=np.uint16).transpose([2, 1, 0])
         vSizeX, vSizeY, vSizeZ = np.shape(vData)
         aSurfaceData.Create(Imaris.tType.eTypeUInt16, vSizeX, vSizeY, vSizeZ, 1, 1) 
         aSurfaceData.SetDataVolumeFloats(vData.tolist(), aIndexC = 0, aIndexT = 0)

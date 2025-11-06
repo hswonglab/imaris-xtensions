@@ -16,7 +16,6 @@
 '''ExportSurfaces exports the surfaces in an Imaris file for use outside Imaris.
 '''
 
-import csv
 import json
 import logging
 import os
@@ -29,11 +28,13 @@ from tkinter import Tk
 from tkinter import messagebox
 from tkinter import filedialog
 from tkinter import simpledialog
+from tqdm import tqdm
 
-# Some DLLs are stored at this path, but it isn't correctly set by default. We
-# can't just set the system environment variable because doing so adds a space
-# at the end of the path for some reason. This means that instead of searching
-# for \path\to\bin\myDll.dll, it searches for \path\to\bin\ myDll.dll.
+# Some DLLs that numpy needs are stored at this path, but it isn't correctly
+# set by default. We can't just set the system environment variable because
+# doing so adds a space at the end of the path for some reason. This means that
+# instead of searching for \path\to\bin\myDll.dll, it searches for
+# \path\to\bin\ myDll.dll.
 DLL_PATH = os.path.join(os.path.dirname(sys.executable), 'Library', 'bin')
 os.environ['PATH'] += f';{DLL_PATH}'
 
@@ -53,7 +54,6 @@ def Main(vImarisApplication):
         messagebox.showwarning('Only 1 image may be open at a time for this XTension')
         return
 
-    vSurfaces = vImarisApplication.GetFactory().CreateSurfaces()
     vSurfaces = vImarisApplication.GetFactory().ToSurfaces(vImarisApplication.GetSurpassSelection())
     logging.info('Selected set of surfaces: %s', vSurfaces.GetName())
     vNumSelected = len(vSurfaces.GetSelectedIndices())
@@ -73,7 +73,7 @@ def Main(vImarisApplication):
     print(f'Exporting {len(vSurfaceIndices)} surfaces in "{vSurfaces.GetName()}".')
 
     vSurfaceJson = []
-    for vSurfaceIndex in vSurfaceIndices:
+    for vSurfaceIndex in tqdm(vSurfaceIndices):
         vSurfaceData = vSurfaces.GetSurfaceData(vSurfaceIndex)
         assert str(vSurfaceData.GetType()) == 'eTypeUInt16'
         vSurfaceDataArray = np.array(vSurfaceData.GetDataFloats(), dtype='int16')
@@ -82,6 +82,8 @@ def Main(vImarisApplication):
         # x, y, and z.
         assert vSurfaceDataArray.shape[0] == 1
         assert vSurfaceDataArray.shape[1] == 1
+        # Re-shape the data array to have axes (z, y, x).
+        vSurfaceDataArray = vSurfaceDataArray[0, 0, :, :, :].transpose([2, 1, 0])
 
         vSurfaceJson.append({
             # xRange, yRange, and zRange define the ranges of x, y, and z
@@ -93,8 +95,8 @@ def Main(vImarisApplication):
             # values outside the surface. To identify the precise boundary of
             # the surface, interpolate between the positive and negative values
             # to find the zero point. Alternatively, for an approximate mask,
-            # binarize on the sign of each voxel. Mask dimensions are (x, y, z).
-            'mask': vSurfaceDataArray[0, 0, :, :, :].tolist(),
+            # binarize on the sign of each voxel. Mask dimensions are (z, y, x).
+            'mask': vSurfaceDataArray.tolist(),
         })
     vSafeSurfaceName = vSurfaces.GetName().replace(' ', '_')
     vExportPath = f'{os.path.splitext(image_path)[0]}-{vSafeSurfaceName}.json'
@@ -108,8 +110,9 @@ def Main(vImarisApplication):
         else:
             logging.info('User declined to overwrite. Aborting.')
             return
+    print(f'Writing export to {vExportPath}')
     with open(vExportPath, 'w') as f:
-        json.dump(vSurfaceJson, f, indent=2)
+        json.dump(vSurfaceJson, f)
 
     logging.info(
         f'Exported %d surfaces from set "%s" to "%s"',
@@ -136,6 +139,10 @@ def ExportSurfaces(aImarisId):
     print(f'Connected to Imaris application (id={aImarisId})')
 
     try:
+        # Note that if you want to profile this tool's runtime, un-comment the
+        # line below. You must also temporarly stop using tqdm to get an
+        # accurate profile.
+        #cProfile.runctx('Main(vImarisApplication)', globals=globals(), locals=locals(), filename='stats')
         Main(vImarisApplication)
     except Exception as exception:
         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
