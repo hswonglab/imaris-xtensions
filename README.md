@@ -66,13 +66,31 @@ This representation has the following useful properties:
 
 ### Specification
 
-Version: 0.1
+Version: 0.1.0
 
 Conceptually, we first define a rectangular prism that fully encloses the
 surface. Then, we store a 3-dimensional mask that fills this enclosing box.
 The mask stores positive values inside the surface and negative values outside
 the surface. The precise boundary of the surface is the zero point interpolated
 between the positive and negative values on either side of the boundary.
+
+Our JSON-formatted representation consists of an object with the following
+top-level keys:
+
+* `version` (mandatory): The version of this specification that is used to
+  represent the surface data. This versioning follows
+  [Semantic Versioning](https://semver.org), meaning that the version number is
+  broken into 3 parts: `major.minor.patch`. Major version increments represent
+  breaking changes, minor version increments represent backward-compatible
+  feature additions, and patch version increments represent backward-compatible
+  bug fixes. The version is specified as a string.
+  * Implementations of this specification must verify that the version number
+    is compatible when parsing surface data.
+* `metadata` (optional): An object with arbitrary keys. Users can use this to
+  store metadata like the name of the image the data was exported from.
+  Software implementing this specification should make no assumptions about the
+  contents of this field.
+* `surfaces` (mandatory): The segmentation data (see below).
 
 Segmentation data is represented as a JSON-formatted list of objects. Each
 object has the following keys:
@@ -92,45 +110,53 @@ represented as follows:
 
 ```json
 {
-    "xRange": [3, 7],
-    "yRange": [4, 8],
-    "zRange": [5, 9],
-    "mask": [
-        [
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-        ],
-        [
-            [-1, -1, -1, -1, -1],
-            [-1,  0,  0,  0, -1],
-            [-1,  0,  0,  0, -1],
-            [-1,  0,  0,  0, -1],
-            [-1, -1, -1, -1, -1],
-        ],
-        [
-            [-1, -1, -1, -1, -1],
-            [-1,  0,  0,  0, -1],
-            [-1,  0,  1,  0, -1],
-            [-1,  0,  0,  0, -1],
-            [-1, -1, -1, -1, -1],
-        ],
-        [
-            [-1, -1, -1, -1, -1],
-            [-1,  0,  0,  0, -1],
-            [-1,  0,  0,  0, -1],
-            [-1,  0,  0,  0, -1],
-            [-1, -1, -1, -1, -1],
-        ],
-        [
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-            [-1, -1, -1, -1, -1],
-        ],
+    "version": "0.1.0",
+    "metadata": {
+        "someKey": "someValue"
+    },
+    "surfaces": [
+        {
+            "xRange": [3, 7],
+            "yRange": [4, 8],
+            "zRange": [5, 9],
+            "mask": [
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  1,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+            ]
+        }
     ]
 }
 ```
