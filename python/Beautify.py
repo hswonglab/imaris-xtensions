@@ -7,123 +7,57 @@
 #
 #    <CustomTools>
 #      <Menu>
-#       <Item name="Beautify (Under Development)" icon="Python3" tooltip="Beautify your image">
+#       <Item name="Beautify" icon="Python3" tooltip="Beautify your image">
 #         <Command>Python3XT::Beautify(%i)</Command>
 #       </Item>
 #      </Menu>
 #    </CustomTools>
 
-'''LinearUnmixing performs unmixing using a predefined compensation matrix.
+'''Beautify prepares smoothed images from files acquired in photon counting mode,
+which tend to have low pixel values. 
 
-The matrix should be provided as a .csv file. A square matrix of dimension 
-equal to the number of channels in the image is expected. Each row of the matrix
-is intended to represent a fluorophore and each column a 
-detection channel. The ith column is intended to correspond to the principal detection
-channel of the ith fluorophore. All diagonal entries would be unity, The (i,j)th
-element of the matrix would indicate the signal of fluorophore i in 
-detection channel j relative to the principal detection channel. All entries of 
-the matrix would be between zero and one. The matrix will generally be 
-asymmetric. Unmixing is performed by calculating the pseudoinverse of the 
-compensation matrix and applying it to each pixel of the image.
+This function will apply a linear stretch to the data, and then apply a Gaussian 
+filter. These operations are performed channel-by-channel. The user will be asked to 
+provide values for linear scaling, where the provided value will be cast to the maximum 
+intensity. The Gaussian filter width has been set to 0.284um by default. This will be 
+updated in future developments.  
+
+This XTension supports batch operations. The user will be prompted to choose 
+whether all .ims files in the directory of the current image shall be modified. 
 
 Whenever this XTension operates on a file, it tracks all changes in a log file.
-If the file being modified is at path `path`, then the log file is at
-`path.txt`. Note however that this XTension cannot save changes to the file, so
+If the file currently opened is at path `path`, then the log file is at
+`path.txt`. When called in batch mode, all logs will be written in `path.txt` 
+corresponding to the file from which the XTension was called. 
+
+This XTension will only save changes when run in batch mode. Otherwise, 
 logged changes may not actually be saved if the user chooses not to.
 '''
 
-import csv
-import logging
-import traceback
-import numpy as np
-import ImarisLib
-from tqdm.contrib.itertools import product
+try:
+    import csv
+    import logging
+    import traceback
+    import ImarisLib
+    from XTBatch import XTBatch
+    import tkinter as tk
+    from tkinter import messagebox
+    from tkinter import filedialog
+    from tqdm.contrib.itertools import product
+except Exception as e:
+    print(e)
+    input("Press enter to exit;")
+    raise
 
-from tkinter import *
-from tkinter import messagebox
-from tkinter import filedialog
 
 LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(message)s'
 
-def Main(vImarisApplication):
-    image_path = vImarisApplication.GetCurrentFileName()
-    logpath = image_path + '.log'
-    logging.basicConfig(format=LOG_FORMAT, filename=logpath, level=logging.INFO)
-    logging.info('----- Begin Editing %s -----', image_path)
-
-    # Get the image and channels
-    vNumberOfImages = vImarisApplication.GetNumberOfImages()
-    if vNumberOfImages != 1:
-        messagebox.showwarning('Only 1 image may be open at a time for this XTension')
-        return
-
-    vImage = vImarisApplication.GetImage(0)
-    vNumChannels = vImage.GetSizeC()
-    vNumSlices = vImage.GetSizeZ()
-    vXSize = vImage.GetSizeX()
-    vYSize=vImage.GetSizeY()
-
-    with filedialog.askopenfile(mode='r', title='Select CSV specifying compensation matrix') as f:
-        logging.info('Using compensation matrix from %s', f.name)
-        reader = csv.reader(f)
-        matrix = []
-        for row in reader:
-            matrix.append(row)
-        
-    matrix=np.array(matrix,dtype=np.float32)
-
-    if matrix.shape[0] != matrix.shape[1]:
-        raise RuntimeError(
-            f'Number of rows in compensation matrix ({matrix.shape[0]}) '
-            f'does not match number of columns ({matrix.shape[1]})'
-        )
-    
-    if matrix.shape[0] != vNumChannels:
-        raise RuntimeError(
-            f'Number of rows in compensation matrix ({matrix.shape[0]}) '
-            f'does not match number of channels in image ({vNumChannels})'
-        )
-    
-    logging.info('Calculating unmixing matrix.')
-    unmixing_matrix=np.linalg.pinv(matrix)
-
-    logging.info('Unmixing image.')
-    vImageNew = vImage.Clone()
-    #process data slice by slice in square windows of length vWindowSize pixels
-    vWindowSize = 4000 # larger windows can speed up execution but will be more memory-intensive
-    for x,y,z in product(range(0,vXSize,vWindowSize),range(0,vYSize,vWindowSize),range(vNumSlices)):
-        window_x_len=min(vWindowSize,vXSize-x)
-        window_y_len=min(vWindowSize,vYSize-y)
-        vImageArray=np.zeros((window_x_len,window_y_len,vNumChannels)) # container for subslice of image as numpy array
-        for c in range(vNumChannels): # write each channel of image to array
-            vImageArray[:,:,c]=np.array([np.frombuffer(row,dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=c,aIndexT=0,aSizeX=window_x_len,aSizeY=window_y_len)])
-        vImageArrayUnmixed=np.uint8(np.matmul(vImageArray,unmixing_matrix).clip(0,255)) #apply matrix unmixing, truncate values below zero or above 255, and convert to integer format
-        # np.uint8 returns an array with floor applied element-wise. rounding by np.rint does not appear to obviously affect the unmixed image and slows down the code slightly
-        #TODO: compatibility for 16bit and 32bit images
-        for c in range(vNumChannels): #write each channel of array to new image
-            vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in vImageArrayUnmixed[:,:,c]],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=c,aIndexT=0)
-    logging.info('Unmixing complete.')
-    vImarisApplication.SetImage(0, vImageNew)
-    logging.info('Asking user to save image.')    
-    saved = messagebox.askyesno(
-        'Save changes.',
-        'Please save or discard changes. Did you save the file?'
-    )
-    logging.info('User reports that they saved changes: %s', saved)
-    logging.info('----- Done Editing %s -----', image_path)
-    print('Changes complete.')
-
-
-def LinearUnmixing(aImarisId):
+def Main(aImarisId):
     # Create an ImarisLib object
     vImarisLib = ImarisLib.ImarisLib()
 
     # Get an imaris object with id aImarisId
     vImarisApplication = vImarisLib.GetApplication(aImarisId)
-
-    # Initialize and launch Tk window, then hide it.
-    vRootTkWindow = Tk()
-    vRootTkWindow.withdraw()
 
     # Check if the object is valid
     if vImarisApplication is None:
@@ -132,8 +66,98 @@ def LinearUnmixing(aImarisId):
 
     print(f'Connected to Imaris application (id={aImarisId})')
 
+    image_path = vImarisApplication.GetCurrentFileName()
+    logpath = image_path + '.log'
+    
+    logging.basicConfig(format=LOG_FORMAT, filename=logpath, level=logging.INFO)
+    logging.info('----- Begin Editing %s -----', image_path)
+
+    batched=messagebox.askyesno(
+        'Batched Operation.',
+        'Would you like to apply changes to all .ims files in this folder?'
+    )
+    filter_width=0.284 # TODO: automatically retrieve voxel size for filter width
+    # curr_max=None
+    vImage = vImarisApplication.GetImage(0)  
+    vNumChannels = vImage.GetSizeC()
+
+    channels=[vImage.GetChannelName(i) for i in range(vNumChannels)]
+
+    root=tk.Tk()
+    vars=[]
+    
+    tk.Label(root,text='Enter the pixel value that will be scaled to maximum intensity for each channel').grid(
+        row=0,column=0,columnspan=2,pady=(10,15))
+    for i, channel in enumerate(channels,start=1):
+        tk.Label(root,text=channel).grid(row=i,column=0,padx=10,pady=5,sticky='w')
+        var=tk.StringVar(root,value='255')
+        tk.Entry(root,textvariable=var).grid(row=i,column=1,padx=10,pady=5)
+        vars.append(var)
+
+    def action():
+        try:
+            root.curr_max=[float(var.get()) for var in vars]
+            for val in root.curr_max:
+                assert (val>0. and val<=255.)
+            root.quit()
+        except (ValueError,AssertionError):
+            tk.Label(root,text='Please provide numerical values between 0 and 255 for scaling values.').grid(
+                row=len(channels)+2,column=0,columnspan=2,pady=10)
+
+        
+    
+    tk.Button(root,text='Submit',command=action).grid(row=len(channels)+1,column=0,columnspan=2,pady=10)
+    root.mainloop()
+    curr_max=root.curr_max
+    root.destroy()
+
+    if batched:
+        XTBatch(vImarisApplication,ApplyBeautification,(filter_width,curr_max),operate_on_image=False)
+    else:
+        ApplyBeautification(vImarisApplication,filter_width,curr_max)
+        logging.info('Asking user to save image.')
+        saved = messagebox.askyesno(
+            'Save changes.',
+            'Please save or discard changes. Did you save the file?'
+        )
+        logging.info('User reports that they saved changes: %s', saved)
+        logging.info('----- Done Editing %s -----', image_path)
+    print('Changes complete.')
+
+def ApplyBeautification(vImarisApplication,filter_width,curr_max):
+    vIP = vImarisApplication.GetImageProcessing()
+    vNumberOfImages = vImarisApplication.GetNumberOfImages()
+    if vNumberOfImages != 1:
+        messagebox.showwarning('Only 1 image may be open at a time for this XTension')
+        return
+    
+    vImage = vImarisApplication.GetImage(0)    
+    vNumChannels = vImage.GetSizeC()
+    # try: 
+    #     l=len(curr_max)
+    # if len(curr_max)==vNumChannels:
+    #     pass
+    # elif len(curr_max)==1:
+    #     curr_max=[curr_max]*vNumChannels
+    # else:
+    #     raise(Exception(''))
+    for i in range(vNumChannels):
+        # import pdb
+        # pdb.set_trace()
+        vIP.ContrastStretchChannel(vImage,i,0,curr_max[i],0,255)
+        logging.info(f'Stretching channel {i} by casting intensity {curr_max[i]} to maximum')
+        vIP.GaussFilterChannel(vImage,i,filter_width)
+        logging.info(f'Applying Gaussian filter of width {filter_width} to channel {i}')
+    return None
+
+
+def Beautify(aImarisId):
+    # Initialize and launch Tk window, then hide it.
+    vRootTkWindow = tk.Tk()
+    vRootTkWindow.withdraw()
+
     try:
-        Main(vImarisApplication)
+        Main(aImarisId)
     except Exception as exception:
         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
     messagebox.showinfo('Complete', 'The XTension has terminated.')
