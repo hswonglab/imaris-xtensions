@@ -16,7 +16,7 @@
 '''ExportSurfaces exports the surfaces in an Imaris file for use outside Imaris.
 '''
 
-import json
+import datetime
 import logging
 import os
 import sys
@@ -24,6 +24,7 @@ import traceback
 
 import ImarisLib
 
+import orjson
 from tkinter import Tk
 from tkinter import messagebox
 from tkinter import filedialog
@@ -41,6 +42,7 @@ os.environ['PATH'] += f';{DLL_PATH}'
 import numpy as np
 
 LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(message)s'
+SURFACE_SERIALIZATION_SPEC_VERSION = "0.1.0"
 
 def Main(vImarisApplication):
     image_path = vImarisApplication.GetCurrentFileName()
@@ -110,9 +112,20 @@ def Main(vImarisApplication):
         else:
             logging.info('User declined to overwrite. Aborting.')
             return
+    vExportData = {
+        'version': SURFACE_SERIALIZATION_SPEC_VERSION,
+        'metadata': {
+            'sourceImage': image_path,
+            'sourceSurface': vSurfaces.GetName(),
+            'sourceSoftware': vImarisApplication.GetVersion(),
+            'exportDateTime': datetime.datetime.now(
+                datetime.timezone.utc).isoformat()
+        },
+        'surfaces': vSurfaceJson,
+    }
     print(f'Writing export to {vExportPath}')
-    with open(vExportPath, 'w') as f:
-        json.dump(vSurfaceJson, f)
+    with open(vExportPath, 'wb') as f:
+        f.write(orjson.dumps(vExportData, option=orjson.OPT_SERIALIZE_NUMPY))
 
     logging.info(
         f'Exported %d surfaces from set "%s" to "%s"',
