@@ -64,9 +64,11 @@ def Main(vImarisApplication):
         f'Export only the {vNumSelected} selected surfaces? Choose "No" to export all surfaces in "{vSurfaces.GetName()}".')
     if vSelectionMode is True:
         vSurfaceIndices = vSurfaces.GetSelectedIndices()
+        vSurfaceIds = vSurfaces.GetSelectedIds()
         logging.info('Exporting only %d selected surfaces.', vNumSelected)
     elif vSelectionMode is False:
         vSurfaceIndices = range(vSurfaces.GetNumberOfSurfaces())
+        vSurfaceIds = vSurfaces.GetIds()
         logging.info('Exporting all surfaces in selected set.')
     else:
         logging.info('User canceled when asked whether to export only selected surfaces.')
@@ -75,7 +77,7 @@ def Main(vImarisApplication):
     print(f'Exporting {len(vSurfaceIndices)} surfaces in "{vSurfaces.GetName()}".')
 
     vSurfaceJson = []
-    for vSurfaceIndex in tqdm(vSurfaceIndices):
+    for vSurfaceIndex, vSurfaceId in zip(tqdm(vSurfaceIndices), vSurfaceIds):
         vSurfaceData = vSurfaces.GetSurfaceData(vSurfaceIndex)
         assert str(vSurfaceData.GetType()) == 'eTypeUInt16'
         vSurfaceDataArray = np.array(vSurfaceData.GetDataFloats(), dtype='int16')
@@ -88,6 +90,7 @@ def Main(vImarisApplication):
         vSurfaceDataArray = vSurfaceDataArray[0, 0, :, :, :].transpose([2, 1, 0])
 
         vSurfaceJson.append({
+            'id': vSurfaceId,
             # xRange, yRange, and zRange define the ranges of x, y, and z
             # coordinates spanned by the bounding box filled by the mask.
             'xRange': [vSurfaceData.GetExtendMinX(), vSurfaceData.GetExtendMaxX()],
