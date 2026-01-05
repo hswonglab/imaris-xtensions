@@ -139,7 +139,7 @@ def ImageLinearUnmixing(vImage,unmixing_matrix):
     logging.info('Unmixing image.')
     vImageNew = vImage.Clone()
     #process data slice by slice in square windows of length vWindowSize pixels
-    vWindowSize = 4000 # larger windows can speed up execution but will be more memory-intensive
+    vWindowSize = 10000 # larger windows can speed up execution but will be more memory-intensive
     for x,y,z in product(range(0,vXSize,vWindowSize),range(0,vYSize,vWindowSize),range(vNumSlices)):
         window_x_len=min(vWindowSize,vXSize-x)
         window_y_len=min(vWindowSize,vYSize-y)
