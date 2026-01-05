@@ -21,8 +21,10 @@ messagepack format for a more compressed representation of surfaces.
 
 import datetime
 import logging
+from multiprocessing import get_context
 import os
 import sys
+import time
 import traceback
 
 import ImarisLib
@@ -33,7 +35,7 @@ from tkinter import Tk
 from tkinter import messagebox
 from tkinter import filedialog
 from tkinter import simpledialog
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 # Some DLLs that numpy needs are stored at this path, but it isn't correctly
 # set by default. We can't just set the system environment variable because
@@ -48,7 +50,74 @@ import numpy as np
 LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(message)s'
 SURFACE_SERIALIZATION_SPEC_VERSION = "0.1.0"
 
-def Main(vImarisApplication):
+
+imaris_handling_context = get_context()
+
+class ImarisDependentProcess(imaris_handling_context.Process):
+    '''Process that will run a cleanup function before exiting.'''
+    @staticmethod
+    def teardown():
+        # Assuming vImarisLib was setup with InitializeWorker().
+        vImarisLib.Disconnect()
+
+    def run(self):
+        if self._target:
+            self._target(*self._args, **self._kwargs)
+            self.teardown()
+
+imaris_handling_context.Process = ImarisDependentProcess
+
+
+def InitializeWorker(aImarisId):
+    '''Setup the calling worker with a connection to Imaris.'''
+    # This initializer runs as each worker process is spun up, and the workers
+    # will be destroyed once they finish, so global variables are okay here.
+    global vImarisLib
+    global vImarisApplication
+    global vSurfaces
+
+    vImarisLib = ImarisLib.ImarisLib()
+    vImarisApplication = vImarisLib.GetApplication(aImarisId)
+    vSurfaces = vImarisApplication.GetFactory().ToSurfaces(vImarisApplication.GetSurpassSelection())
+
+
+def GetSurfaceJson(vSurfaceIndex, vSurfaceId):
+    '''Retrieve a Surface's JSON data.
+
+    Meant to be run asynchronously as one task in a multiprocessing pool.'''
+    vSurfaceData = vSurfaces.GetSurfaceData(vSurfaceIndex)
+    assert str(vSurfaceData.GetType()) == 'eTypeUInt16'
+    vSurfaceDataArray = np.array(vSurfaceData.GetDataFloats(), dtype='int16')
+    # The data array is a 5-dimensional array. The first two dimensions
+    # appear to be meaningless and have size 1. The last 3 dimensions are
+    # x, y, and z.
+    assert vSurfaceDataArray.shape[0] == 1
+    assert vSurfaceDataArray.shape[1] == 1
+    # Re-shape the data array to have axes (z, y, x).
+    vSurfaceDataArray = vSurfaceDataArray[0, 0, :, :, :].transpose([2, 1, 0])
+
+    vFlatSurfaceData = vSurfaceDataArray.flatten() > 0
+    vBinarySurfaceData = np.packbits(vFlatSurfaceData, bitorder='big').tobytes()
+
+    aSurfaceJson = {
+        'id': vSurfaceId,
+        # xRange, yRange, and zRange define the ranges of x, y, and z
+        # coordinates spanned by the bounding box filled by the mask.
+        'xRange': [vSurfaceData.GetExtendMinX(), vSurfaceData.GetExtendMaxX()],
+        'yRange': [vSurfaceData.GetExtendMinY(), vSurfaceData.GetExtendMaxY()],
+        'zRange': [vSurfaceData.GetExtendMinZ(), vSurfaceData.GetExtendMaxZ()],
+        'maskShape': list(vSurfaceDataArray.shape),
+        # The mask contains positive values inside the surface and negative
+        # values outside the surface. To identify the precise boundary of
+        # the surface, interpolate between the positive and negative values
+        # to find the zero point. Alternatively, for an approximate mask,
+        # binarize on the sign of each voxel. Mask dimensions are (z, y, x).
+        'mask': vBinarySurfaceData,
+    }
+    return aSurfaceJson
+
+
+def Main(vImarisApplication, aImarisId):
     image_path = vImarisApplication.GetCurrentFileName()
     logpath = image_path + '.log'
     logging.basicConfig(format=LOG_FORMAT, filename=logpath, level=logging.INFO)
@@ -79,40 +148,31 @@ def Main(vImarisApplication):
         return
 
     print(f'Exporting {len(vSurfaceIndices)} surfaces in "{vSurfaces.GetName()}".')
+    start = time.time()
+    print('Retrieving surface data')
+    progressbar = tqdm(total=len(vSurfaceIds))
+    with imaris_handling_context.Pool(
+        processes=min(os.cpu_count(), len(vSurfaceIds)),
+        initializer=InitializeWorker,
+        initargs=(aImarisId,),
+    ) as pool:
+        results = [
+            pool.apply_async(GetSurfaceJson, (vSurfaceIndex, vSurfaceId))
+            for vSurfaceIndex, vSurfaceId in zip(vSurfaceIndices, vSurfaceIds)
+        ]
+        done = 0
+        while done < len(vSurfaceIds):
+            now_done = sum([res.ready() for res in results])
+            progressbar.update(now_done - done)
+            done = now_done
+            time.sleep(1)
+        vSurfaceJson = [res.get(timeout=1) for res in results]
+    end = time.time()
+    progressbar.close()
+    print(f'Surfaces retrieved in {(end - start) / 60} min')
 
-    vSurfaceJson = []
-    for vSurfaceIndex, vSurfaceId in zip(tqdm(vSurfaceIndices), vSurfaceIds):
-        vSurfaceData = vSurfaces.GetSurfaceData(vSurfaceIndex)
-        assert str(vSurfaceData.GetType()) == 'eTypeUInt16'
-        vSurfaceDataArray = np.array(vSurfaceData.GetDataFloats(), dtype='int16')
-        # The data array is a 5-dimensional array. The first two dimensions
-        # appear to be meaningless and have size 1. The last 3 dimensions are
-        # x, y, and z.
-        assert vSurfaceDataArray.shape[0] == 1
-        assert vSurfaceDataArray.shape[1] == 1
-        # Re-shape the data array to have axes (z, y, x).
-        vSurfaceDataArray = vSurfaceDataArray[0, 0, :, :, :].transpose([2, 1, 0])
-
-        vFlatSurfaceData = vSurfaceDataArray.flatten() > 0
-        vBinarySurfaceData = np.packbits(vFlatSurfaceData, bitorder='big').tobytes()
-
-        vSurfaceJson.append({
-            'id': vSurfaceId,
-            # xRange, yRange, and zRange define the ranges of x, y, and z
-            # coordinates spanned by the bounding box filled by the mask.
-            'xRange': [vSurfaceData.GetExtendMinX(), vSurfaceData.GetExtendMaxX()],
-            'yRange': [vSurfaceData.GetExtendMinY(), vSurfaceData.GetExtendMaxY()],
-            'zRange': [vSurfaceData.GetExtendMinZ(), vSurfaceData.GetExtendMaxZ()],
-            'maskShape': list(vSurfaceDataArray.shape),
-            # The mask contains positive values inside the surface and negative
-            # values outside the surface. To identify the precise boundary of
-            # the surface, interpolate between the positive and negative values
-            # to find the zero point. Alternatively, for an approximate mask,
-            # binarize on the sign of each voxel. Mask dimensions are (z, y, x).
-            'mask': vBinarySurfaceData,
-        })
     vSafeSurfaceName = vSurfaces.GetName().replace(' ', '_')
-    vExportPath = f'{os.path.splitext(image_path)[0]}-{vSafeSurfaceName}.mpk'
+    vExportPath = f'{os.path.splitext(image_path)[0]}-{vSafeSurfaceName}-benchmark.mpk'
     if os.path.exists(vExportPath):
         logging.info(f'Existing file detected at {vExportPath}. Asking user for confirmation.')
         if messagebox.askyesno(
@@ -135,8 +195,14 @@ def Main(vImarisApplication):
         'surfaces': vSurfaceJson,
     }
     print(f'Writing export to {vExportPath}')
+    start = time.time()
+    packed_data = msgpack.packb(vExportData, strict_types=True)
+    blocksize = 1024 * 1024  # Write in 1 MiB chunks for progress bar.
     with open(vExportPath, 'wb') as f:
-        f.write(msgpack.packb(vExportData, strict_types=True))
+        for i in trange(0, len(packed_data), blocksize):
+            f.write(packed_data[i:i + blocksize])
+    end = time.time()
+    print(f'Wrote surfaces in {(end - start) / 60} min')
 
     logging.info(
         f'Exported %d surfaces from set "%s" to "%s"',
@@ -167,7 +233,7 @@ def ExportSurfacesBinary(aImarisId):
         # line below. You must also temporarly stop using tqdm to get an
         # accurate profile.
         #cProfile.runctx('Main(vImarisApplication)', globals=globals(), locals=locals(), filename='stats')
-        Main(vImarisApplication)
+        Main(vImarisApplication, aImarisId)
     except Exception as exception:
         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
     messagebox.showinfo('Complete', 'The XTension has terminated.')
