@@ -81,6 +81,16 @@ def InitializeWorker(aImarisId):
     vSurfaces = vImarisApplication.GetFactory().ToSurfaces(vImarisApplication.GetSurpassSelection())
 
 
+def GetSurfacesJson(indices, ids):
+    '''Retrieve JSON data representing multiple Surface objects.
+
+    Meant to be run asynchronously as one task in a multiprocessing pool.'''
+    surfaces_json = []
+    for surface_index, surface_id in zip(indices, ids):
+        surfaces_json.append(GetSurfaceJson(surface_index, surface_id))
+    return surfaces_json
+
+
 def GetSurfaceJson(vSurfaceIndex, vSurfaceId):
     '''Retrieve a Surface's JSON data.
 
@@ -150,23 +160,44 @@ def Main(vImarisApplication, aImarisId):
     print(f'Exporting {len(vSurfaceIndices)} surfaces in "{vSurfaces.GetName()}".')
     start = time.time()
     print('Retrieving surface data')
-    progressbar = tqdm(total=len(vSurfaceIds))
+    workers = min(os.cpu_count(), len(vSurfaceIds))
+    # If num_tasks is the number of surfaces, then we operate like a typical
+    # pool of workers where each task is to retrieve one surface. If num_tasks
+    # is the number of workers, then each worker will only get one task, and we
+    # operate as if instead of using a pool we pre-partitioned the tasks among
+    # the workers.
+
+    # Benchmarking with 1000 surfaces:
+    # num_tasks = workers: 0.09237308502197265 min
+    # num_tasks = num surfaces: 0.09286127090454102 min
+
+    # Benchmarking with >158,000 surfaces:
+    # num_tasks = workers: 29.60245312054952 min
+    # num_tasks = num_surfaces: 24.2604834040006 min, 37 mins
+    num_tasks = workers
+    tasks = [([], []) for _ in range(num_tasks)]
+    progressbar = tqdm(total=len(tasks))
     with imaris_handling_context.Pool(
-        processes=min(os.cpu_count(), len(vSurfaceIds)),
+        processes=workers,
         initializer=InitializeWorker,
         initargs=(aImarisId,),
     ) as pool:
+        for i, (vSurfaceIndex, vSurfaceId) in enumerate(zip(vSurfaceIndices, vSurfaceIds)):
+            tasks[i % num_tasks][0].append(vSurfaceIndex)
+            tasks[i % num_tasks][1].append(vSurfaceId)
         results = [
-            pool.apply_async(GetSurfaceJson, (vSurfaceIndex, vSurfaceId))
-            for vSurfaceIndex, vSurfaceId in zip(vSurfaceIndices, vSurfaceIds)
+            pool.apply_async(GetSurfacesJson, (task_indices, task_ids))
+            for task_indices, task_ids in tasks
         ]
         done = 0
-        while done < len(vSurfaceIds):
+        while done < len(tasks):
             now_done = sum([res.ready() for res in results])
             progressbar.update(now_done - done)
             done = now_done
             time.sleep(1)
-        vSurfaceJson = [res.get(timeout=1) for res in results]
+        vSurfaceJson = []
+        for res in results:
+            vSurfaceJson.extend(res.get(timeout=1))
     end = time.time()
     progressbar.close()
     print(f'Surfaces retrieved in {(end - start) / 60} min')
