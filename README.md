@@ -38,6 +38,163 @@ Imaris would display an entry under "Image Processing" for an extension called
 description.`. When you click on that entry, Imaris will look for a function
 named `XTensionName` in a file called `XTension.py` and execute that function.
 
+## Surface Representation
+
+Sometimes, we want to transport cell segmentation data between software tools.
+For example, we might want to segment cells using Cellpose and then use
+[ImportSurfaces.py](python/ImportSurfaces.py) to load the segmented cell
+surfaces into Imaris. Conversely, we might segment cells in Imaris and then use
+[ExportSurfaces.py](python/ExportSurfaces.py) to export the surfaces for custom
+analysis code. To make cell surfaces portable between software tools, we define
+a simple representation for image segmentation data. This representation is
+lightly adapted from how [Imaris](https://imaris.oxinst.com) provides surface
+data through its XTension interface.
+
+This representation has the following useful properties:
+
+* It is both human- and machine-readable, so users can manually inspect the
+  surface representation when debugging.
+* Our format supports surfaces with boundaries defined with sub-voxel precision
+  while making voxel-precision approximations easy.
+* The representation is sparse, keeping exports space-efficient.
+* We build on top of JSON, which is mature and widely supported. This means
+  that if you want to write your own code to work with segmentation data,
+  libraries to read and write JSON probably already exist for your language of 
+  choice.
+* Simple. We've tried to represent surfaces as simply as possible so that it's
+  easy for users to use them in custom analysis scripts.
+
+### Specification
+
+Version: 0.1.0
+
+Conceptually, we first define a rectangular prism that fully encloses the
+surface. Then, we store a 3-dimensional mask that fills this enclosing box.
+The mask stores positive values inside the surface and negative values outside
+the surface. The precise boundary of the surface is the zero point interpolated
+between the positive and negative values on either side of the boundary.
+
+Our JSON-formatted representation consists of an object with the following
+top-level keys:
+
+* `version` (mandatory): The version of this specification that is used to
+  represent the surface data. This versioning follows
+  [Semantic Versioning](https://semver.org), meaning that the version number is
+  broken into 3 parts: `major.minor.patch`. Major version increments represent
+  breaking changes, minor version increments represent backward-compatible
+  feature additions, and patch version increments represent backward-compatible
+  bug fixes. The version is specified as a string.
+  * Implementations of this specification must verify that the version number
+    is compatible when parsing surface data.
+* `metadata` (optional): An object with arbitrary keys. Users can use this to
+  store metadata like the name of the image the data was exported from.
+  Software implementing this specification should make no assumptions about the
+  contents of this field.
+* `surfaces` (mandatory): The segmentation data (see below).
+
+Segmentation data is represented as a JSON-formatted list of objects. Each
+object has the following keys:
+
+* `xRange`: Minimum and maximum x coordinates of the enclosing box.
+* `yRange`: Minimum and maximum y coordinates of the enclosing box.
+* `zRange`: Minimum and maximum z coordinates of the enclosing box.
+* `mask`: The 3-dimensional mask, represented as triply-nested lists. The
+  indices of these lists are the z, y, and x coordinates of each voxel in the
+  mask, in that order. In other words, the value for the voxel at coordinates
+  `(x, y, z)` is at `mask[z][y][x]`. Each voxel's coordinates are the
+  coordinates of the *center* of the voxel, and voxels on all edges of the
+  enclosing box are included.
+
+For example, a cube with sides of length 2 centered at `(5, 6, 7)` can be
+represented as follows:
+
+```json
+{
+    "version": "0.1.0",
+    "metadata": {
+        "someKey": "someValue"
+    },
+    "surfaces": [
+        {
+            "xRange": [3, 7],
+            "yRange": [4, 8],
+            "zRange": [5, 9],
+            "mask": [
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  1,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1,  0,  0,  0, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+                [
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                    [-1, -1, -1, -1, -1],
+                ],
+            ]
+        }
+    ]
+}
+```
+
+Above we have used a "pretty" representation of the JSON object for
+readability, but this is not required. To save space, you can use a more
+compact representation without line breaks or indentation. Any good JSON parser
+should be able to handle either representation, and our format is agnostic to
+how the JSON-encoded data is stored.
+
+### Usage
+
+The following Python code loads a surface from a JSON file using our
+representation:
+
+```python
+import json
+import numpy as np
+
+with open('surfaces.json', 'r') as f:
+    surfaces_json = json.load(f)
+xRange = surfaces_json[0]['xRange']
+yRange = surfaces_json[0]['yRange']
+zRange = surfaces_json[0]['zRange']
+# The transpose leaves `mask` with axes (x, y, z).
+mask = np.array(surfaces_json[0]['mask']).transpose([2, 1, 0])
+```
+
+### Notes
+
+* Surface representations are not unique. For example, you can always expand
+  the enclosing box and pad the extra space with negative values without
+  changing the represented surface.
+* Beware fencepost errors, as voxel coordinate assignment is somewhat atypical
+  to match how Imaris represents surfaces. For `xRange = [3, 9]` and a mask
+  with voxels of length 1, the mask will have 7 voxels, not 6, because voxels
+  are included at both `x = 3` and at `x = 9`.
+
 ## Acknowledgements
 
 Copyright © 2023-2024 Massachusetts Institute of Technology and Massachusetts
