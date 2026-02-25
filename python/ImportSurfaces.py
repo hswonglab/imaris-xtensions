@@ -80,7 +80,11 @@ def Main(vImarisApplication):
         aSurfaceData.SetExtendMaxZ(vSurfaceJsonData['zRange'][1])
 
         # add aSurfaceData to Surfaces
-        vSurfaces.AddSurface(aSurfaceData, 0) # second number is time index which is irrelevant
+        try: 
+            vSurfaces.AddSurface(aSurfaceData, 0) # second number is time index which is irrelevant
+        except Exception as e:
+            print(f"An error occured: {e}") 
+            
 
     vSurfaces.SetName('Imported Surfaces')
 
