@@ -17,7 +17,6 @@
 '''
 
 import csv
-import json
 import logging
 import os
 import sys
@@ -26,6 +25,7 @@ from tqdm import tqdm
 
 import ImarisLib
 import Imaris
+import orjson
 
 from tkinter import Tk
 from tkinter import messagebox
@@ -58,17 +58,41 @@ def Main(vImarisApplication):
     vSurfaces = vImarisApplication.GetFactory().CreateSurfaces()
     
     logging.info('Asking user to select json')
-    with filedialog.askopenfile(mode='r', title='Select json representing Imaris surfaces') as f:
-        vSurfaceJson = json.load(f)
-    
-    for vSurfaceJsonData in tqdm(vSurfaceJson):
-        
+    vFilePath = filedialog.askopenfilename(title='Select json representing Imaris surfaces')
+    if not vFilePath:
+        return
+    with open(vFilePath, 'rb') as f:
+        vSurfaceJson = orjson.loads(f.read())
+
+    # Determine global data type from max value across all masks (cheap scan)
+    logging.info('Scanning %d surface masks for max value', len(vSurfaceJson))
+    vGlobalMax = max(
+        int(np.max(s['mask'])) for s in tqdm(vSurfaceJson, desc='Scanning max')
+    )
+    if vGlobalMax <= np.iinfo(np.uint8).max:
+        vDtype = np.uint8
+        vImarisType = Imaris.tType.eTypeUInt8
+    elif vGlobalMax <= np.iinfo(np.uint16).max:
+        vDtype = np.uint16
+        vImarisType = Imaris.tType.eTypeUInt16
+    else:
+        vDtype = np.float32
+        vImarisType = Imaris.tType.eTypeFloat
+    logging.info('Global max mask value: %d, using type: %s', vGlobalMax, vImarisType)
+
+    logging.info('Importing %d surfaces', len(vSurfaceJson))
+    for vSurfaceJsonData in tqdm(vSurfaceJson, desc='Importing'):
+        vData = np.ascontiguousarray(
+            np.array(vSurfaceJsonData['mask'], dtype=vDtype).transpose([2, 1, 0])
+        )
+        vSurfaceJsonData['mask'] = None  # free JSON mask data
+        vSizeX, vSizeY, vSizeZ = vData.shape
+
         # create aSurfaceData dataset
         aSurfaceData = vImarisApplication.GetFactory().CreateDataSet()
-        vData = np.array(vSurfaceJsonData['mask'], dtype=np.uint16).transpose([2, 1, 0])
-        vSizeX, vSizeY, vSizeZ = np.shape(vData)
-        aSurfaceData.Create(Imaris.tType.eTypeUInt16, vSizeX, vSizeY, vSizeZ, 1, 1) 
-        aSurfaceData.SetDataVolumeFloats(vData.tolist(), aIndexC = 0, aIndexT = 0)
+        aSurfaceData.Create(vImarisType, vSizeX, vSizeY, vSizeZ, 1, 1)
+        # Use flat 1D array method — much faster than nested-list SetDataVolumeFloats
+        aSurfaceData.SetDataVolumeAs1DArrayFloats(vData.flatten().tolist(), 0, 0)
 
         aSurfaceData.SetExtendMinX(vSurfaceJsonData['xRange'][0])
         aSurfaceData.SetExtendMaxX(vSurfaceJsonData['xRange'][1])
@@ -80,12 +104,11 @@ def Main(vImarisApplication):
         aSurfaceData.SetExtendMaxZ(vSurfaceJsonData['zRange'][1])
 
         # add aSurfaceData to Surfaces
-        try: 
+        try:
             vSurfaces.AddSurface(aSurfaceData, 0) # second number is time index which is irrelevant
         except Exception as e:
             logging.warning(f'Failed to add surface:\n{e}')
             logging.warning(f'The skipped surface:\n{vData}')
-            
 
     vSurfaces.SetName('Imported Surfaces')
 
