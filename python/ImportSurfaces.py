@@ -16,7 +16,6 @@
 '''ImportSurfaces exports the surfaces in an Imaris file for use outside Imaris.
 '''
 
-import csv
 import logging
 import os
 import sys
@@ -30,7 +29,6 @@ import orjson
 from tkinter import Tk
 from tkinter import messagebox
 from tkinter import filedialog
-from tkinter import simpledialog
 
 # Some DLLs are stored at this path, but it isn't correctly set by default. We
 # can't just set the system environment variable because doing so adds a space
