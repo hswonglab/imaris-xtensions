@@ -83,7 +83,8 @@ def Main(vImarisApplication):
         try: 
             vSurfaces.AddSurface(aSurfaceData, 0) # second number is time index which is irrelevant
         except Exception as e:
-            print(f"An error occured: {e}") 
+            logging.warning(f'Failed to add surface:\n{e}')
+            logging.warning(f'The skipped surface:\n{vData}')
             
 
     vSurfaces.SetName('Imported Surfaces')
