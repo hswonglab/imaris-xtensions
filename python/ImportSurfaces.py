@@ -44,7 +44,15 @@ LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(mes
 def Main(vImarisApplication):
     image_path = vImarisApplication.GetCurrentFileName()
     logpath = image_path + '.log'
-    logging.basicConfig(format=LOG_FORMAT, filename=logpath, level=logging.INFO)
+    logging.basicConfig(
+        format=LOG_FORMAT,
+        level=logging.INFO,
+        handlers=[
+            logging.FileHandler(logpath),
+            logging.StreamHandler(sys.stdout),
+        ],
+        force=True,
+    )
     logging.info('----- Begin importing surfaces to %s -----', image_path)
 
     # Get the image and channels
