@@ -139,6 +139,13 @@ def Main(vImarisApplication):
     vScene = vImarisApplication.GetSurpassScene()
     vScene.AddChild(vSurfaces, -1)
 
+    # Save to a new file with suffix — Imaris cannot overwrite the currently
+    # open file (known limitation of the Imaris5 Writer).
+    vBase, vExt = os.path.splitext(image_path)
+    vSavePath = f'{vBase}-imported_surfaces{vExt}'
+    logging.info('Saving to %s', vSavePath)
+    vImarisApplication.FileSave(vSavePath, '')
+
     vElapsedTime = time.time() - vStartTime
     logging.info(
         f'Imported %d surfaces in %.2f seconds',
