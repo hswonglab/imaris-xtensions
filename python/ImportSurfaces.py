@@ -19,6 +19,7 @@
 import logging
 import os
 import sys
+import time
 import traceback
 from tqdm import tqdm
 
@@ -29,6 +30,7 @@ import orjson
 from tkinter import Tk
 from tkinter import messagebox
 from tkinter import filedialog
+from tkinter import simpledialog
 
 # Some DLLs are stored at this path, but it isn't correctly set by default. We
 # can't just set the system environment variable because doing so adds a space
@@ -41,7 +43,18 @@ import numpy as np
 
 LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(message)s'
 
+class TqdmStreamHandler(logging.StreamHandler):
+    """StreamHandler that writes through tqdm.write() to avoid breaking progress bars."""
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.write(msg, file=self.stream)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
 def Main(vImarisApplication):
+    vStartTime = time.time()
     image_path = vImarisApplication.GetCurrentFileName()
     logpath = image_path + '.log'
     logging.basicConfig(
@@ -49,9 +62,8 @@ def Main(vImarisApplication):
         level=logging.INFO,
         handlers=[
             logging.FileHandler(logpath),
-            logging.StreamHandler(sys.stdout),
-        ],
-        force=True,
+            TqdmStreamHandler(sys.stdout),
+        ]
     )
     logging.info('----- Begin importing surfaces to %s -----', image_path)
 
@@ -67,6 +79,11 @@ def Main(vImarisApplication):
     vFilePath = filedialog.askopenfilename(title='Select json representing Imaris surfaces')
     if not vFilePath:
         return
+    vSurfaceName = simpledialog.askstring(
+        'Surface Name', 'Enter name for imported surfaces:',
+        initialvalue='Imported Surfaces'
+    ) or 'Imported Surfaces'
+
     with open(vFilePath, 'rb') as f:
         vSurfaceJson = orjson.loads(f.read())
 
@@ -116,15 +133,17 @@ def Main(vImarisApplication):
             logging.warning(f'Failed to add surface:\n{e}')
             logging.warning(f'The skipped surface:\n{vData}')
 
-    vSurfaces.SetName('Imported Surfaces')
+    vSurfaces.SetName(vSurfaceName)
 
     # add to scene
     vScene = vImarisApplication.GetSurpassScene()
     vScene.AddChild(vSurfaces, -1)
 
+    vElapsedTime = time.time() - vStartTime
     logging.info(
-        f'Imported %d surfaces',
+        f'Imported %d surfaces in %.2f seconds',
         len(vSurfaceJson),
+        vElapsedTime,
     )
     logging.info('----- Done importing surfaces -----')
 
