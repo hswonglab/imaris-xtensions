@@ -87,35 +87,16 @@ def Main(vImarisApplication):
     with open(vFilePath, 'rb') as f:
         vSurfaceJson = orjson.loads(f.read())
 
-    # Determine global data type from max value across all masks (cheap scan)
-    logging.info('Scanning %d surface masks for max value', len(vSurfaceJson))
-    vGlobalMax = max(
-        int(np.max(s['mask'])) for s in tqdm(vSurfaceJson, desc='Scanning max')
-    )
-    if vGlobalMax <= np.iinfo(np.uint8).max:
-        vDtype = np.uint8
-        vImarisType = Imaris.tType.eTypeUInt8
-    elif vGlobalMax <= np.iinfo(np.uint16).max:
-        vDtype = np.uint16
-        vImarisType = Imaris.tType.eTypeUInt16
-    else:
-        vDtype = np.float32
-        vImarisType = Imaris.tType.eTypeFloat
-    logging.info('Global max mask value: %d, using type: %s', vGlobalMax, vImarisType)
-
     logging.info('Importing %d surfaces', len(vSurfaceJson))
     for vSurfaceJsonData in tqdm(vSurfaceJson, desc='Importing'):
-        vData = np.ascontiguousarray(
-            np.array(vSurfaceJsonData['mask'], dtype=vDtype).transpose([2, 1, 0])
-        )
+        vData = np.array(vSurfaceJsonData['mask'], dtype=np.uint16).transpose([2, 1, 0])
         vSurfaceJsonData['mask'] = None  # free JSON mask data
         vSizeX, vSizeY, vSizeZ = vData.shape
 
         # create aSurfaceData dataset
         aSurfaceData = vImarisApplication.GetFactory().CreateDataSet()
-        aSurfaceData.Create(vImarisType, vSizeX, vSizeY, vSizeZ, 1, 1)
-        # Use flat 1D array method — much faster than nested-list SetDataVolumeFloats
-        aSurfaceData.SetDataVolumeAs1DArrayFloats(vData.flatten().tolist(), 0, 0)
+        aSurfaceData.Create(Imaris.tType.eTypeUInt16, vSizeX, vSizeY, vSizeZ, 1, 1)
+        aSurfaceData.SetDataVolumeFloats(vData.tolist(), aIndexC=0, aIndexT=0)
 
         aSurfaceData.SetExtendMinX(vSurfaceJsonData['xRange'][0])
         aSurfaceData.SetExtendMaxX(vSurfaceJsonData['xRange'][1])
@@ -139,8 +120,7 @@ def Main(vImarisApplication):
     vScene = vImarisApplication.GetSurpassScene()
     vScene.AddChild(vSurfaces, -1)
 
-    # Save to a new file with suffix — Imaris cannot overwrite the currently
-    # open file (known limitation of the Imaris5 Writer).
+    # Save to a new file with suffix — I can't make Imaris overwrite the currently open file
     vBase, vExt = os.path.splitext(image_path)
     vSavePath = f'{vBase}-imported_surfaces{vExt}'
     logging.info('Saving to %s', vSavePath)
