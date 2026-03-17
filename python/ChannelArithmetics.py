@@ -205,7 +205,31 @@ def RunChannelArithmetics(vImage, formulas, verbose=True):
     return vImageCurrent
 
 
+# Map Imaris eType to numpy dtype info
+# storage_dtype: dtype matching the raw bytes from Imaris
+# compute_dtype: a wider dtype for intermediate arithmetic (avoids overflow)
+# clip_min/clip_max: valid value range (None for float types = no clipping)
+# method_suffix: suffix for Imaris GetDataSubSlice/SetDataSubSlice methods
+IMAGE_TYPE_MAP = {
+    'eTypeUInt8':  (np.uint8,   np.int16,    0, 255,   'Bytes'),
+    'eTypeUInt16': (np.uint16,  np.int32,    0, 65535,  'Shorts'),
+    'eTypeFloat':  (np.float32, np.float64,  None, None, 'Floats'),
+}
+
+def get_dtype_info(vImage):
+    """Query the Imaris image type and return (storage_dtype, compute_dtype, clip_min, clip_max, method_suffix)."""
+    type_str = str(vImage.GetType())
+    if type_str in IMAGE_TYPE_MAP:
+        return IMAGE_TYPE_MAP[type_str]
+    raise ValueError(f"Unsupported image type: {type_str}. Supported types: {list(IMAGE_TYPE_MAP.keys())}")
+
+
 def ApplyFormulaToImage(vImage, formula_str, verbose=True): 
+
+    # Determine image data type
+    storage_dtype, compute_dtype, clip_min, clip_max, method_suffix = get_dtype_info(vImage)
+    if verbose:
+        print(f"Image data type: {str(vImage.GetType())} -> numpy {storage_dtype.__name__}")
 
     # Make a new image 
     vImageNew = vImage.Clone()
@@ -304,7 +328,12 @@ def ApplyFormulaToImage(vImage, formula_str, verbose=True):
         for ch_name in channel_indices:
             channel_values[ch_name] = np.zeros((window_x_len,window_y_len))
             ch_index = channel_indices[ch_name]
-            channel_values[ch_name] = np.array([np.frombuffer(row, dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=t,aSizeX=window_x_len,aSizeY=window_y_len)], dtype='int16')
+            get_sub_slice = getattr(vImage, f'GetDataSubSlice{method_suffix}')
+            raw_data = get_sub_slice(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=t,aSizeX=window_x_len,aSizeY=window_y_len)
+            if method_suffix == 'Bytes':
+                channel_values[ch_name] = np.array([np.frombuffer(row, dtype=storage_dtype) for row in raw_data], dtype=compute_dtype)
+            else:
+                channel_values[ch_name] = np.array(raw_data, dtype=compute_dtype)
 
         # parse arithmetic expression
         tree = ast.parse(formula_str, mode='eval')
@@ -317,18 +346,23 @@ def ApplyFormulaToImage(vImage, formula_str, verbose=True):
         # calculate
         new_channel_values = EvalVisitor().visit(tree.body)
 
-        # Clip values to 0-255 and convert to uint8
-        if warn_clipping_max and np.any(new_channel_values > 255):
-            print("\nWarning: Some values are above 255, clipping to 255.\n")
-            warn_clipping_max = False
-        if warn_clipping_min and np.any(new_channel_values < 0):
-            print("\nWarning: Some values are below 0, clipping to 0.\n")
-            warn_clipping_min = False
-
-        new_channel_values = np.clip(new_channel_values, 0, 255)
-        new_channel_values = np.array(new_channel_values, dtype='uint8')
+        # Clip and convert to the storage dtype
+        if clip_min is not None and clip_max is not None:
+            if warn_clipping_max and np.any(new_channel_values > clip_max):
+                print(f"\nWarning: Some values are above {clip_max}, clipping to {clip_max}.\n")
+                warn_clipping_max = False
+            if warn_clipping_min and np.any(new_channel_values < clip_min):
+                print(f"\nWarning: Some values are below {clip_min}, clipping to {clip_min}.\n")
+                warn_clipping_min = False
+            new_channel_values = np.clip(new_channel_values, clip_min, clip_max)
+        new_channel_values = np.array(new_channel_values, dtype=storage_dtype)
         
         # Add data to new channel in new Image
-        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=t)
+        set_sub_slice = getattr(vImageNew, f'SetDataSubSlice{method_suffix}')
+        if method_suffix == 'Bytes':
+            out_data = [row.tobytes() for row in new_channel_values]
+        else:
+            out_data = [row.tolist() for row in new_channel_values]
+        set_sub_slice(aData=out_data,aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=t)
 
     return vImageNew
