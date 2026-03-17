@@ -292,18 +292,19 @@ def ApplyFormulaToImage(vImage, formula_str, verbose=True):
     vNumSlices = vImage.GetSizeZ()
     vXSize = vImage.GetSizeX()
     vYSize=vImage.GetSizeY()
+    vNumTimepoints = vImage.GetSizeT()
 
     is_first = True
     warn_clipping_max = True
     warn_clipping_min = True
-    for x,y,z in product(range(0,vXSize,vWindowSize),range(0,vYSize,vWindowSize),range(vNumSlices)):
+    for t,x,y,z in product(range(vNumTimepoints),range(0,vXSize,vWindowSize),range(0,vYSize,vWindowSize),range(vNumSlices)):
         window_x_len=min(vWindowSize,vXSize-x)
         window_y_len=min(vWindowSize,vYSize-y)
 
         for ch_name in channel_indices:
             channel_values[ch_name] = np.zeros((window_x_len,window_y_len))
             ch_index = channel_indices[ch_name]
-            channel_values[ch_name] = np.array([np.frombuffer(row, dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=0,aSizeX=window_x_len,aSizeY=window_y_len)], dtype='int16')
+            channel_values[ch_name] = np.array([np.frombuffer(row, dtype=np.uint8) for row in vImage.GetDataSubSliceBytes(aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_index,aIndexT=t,aSizeX=window_x_len,aSizeY=window_y_len)], dtype='int16')
 
         # parse arithmetic expression
         tree = ast.parse(formula_str, mode='eval')
@@ -328,6 +329,6 @@ def ApplyFormulaToImage(vImage, formula_str, verbose=True):
         new_channel_values = np.array(new_channel_values, dtype='uint8')
         
         # Add data to new channel in new Image
-        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=0)
+        vImageNew.SetDataSubSliceBytes(aData=[row.tobytes() for row in new_channel_values],aIndexX=x,aIndexY=y,aIndexZ=z,aIndexC=ch_out_index,aIndexT=t)
 
     return vImageNew
