@@ -87,6 +87,7 @@ def Main(vImarisApplication):
     with open(vFilePath, 'rb') as f:
         vSurfaceJson = orjson.loads(f.read())
 
+    n_skipped = 0
     logging.info('Importing %d surfaces', len(vSurfaceJson))
     for vSurfaceJsonData in tqdm(vSurfaceJson, desc='Importing'):
         vData = np.array(vSurfaceJsonData['mask'], dtype=np.uint16).transpose([2, 1, 0])
@@ -113,6 +114,7 @@ def Main(vImarisApplication):
         except Exception as e:
             logging.warning(f'Failed to add surface:\n{e}')
             logging.warning(f'The skipped surface:\n{vData}')
+            n_skipped += 1
 
     vSurfaces.SetName(vSurfaceName)
 
@@ -126,10 +128,12 @@ def Main(vImarisApplication):
     logging.info('Saving to %s', vSavePath)
     vImarisApplication.FileSave(vSavePath, '')
 
-    vElapsedTime = time.time() - vStartTime
+    vElapsedTime = (time.time() - vStartTime)/60
     logging.info(
-        f'Imported %d surfaces in %.2f seconds',
+        f'Imported %d/%d surfaces (%d skipped) in %.2f minutes',
+        len(vSurfaceJson) - n_skipped,
         len(vSurfaceJson),
+        n_skipped,
         vElapsedTime,
     )
     logging.info('----- Done importing surfaces -----')
