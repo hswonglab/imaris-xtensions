@@ -1,6 +1,6 @@
 #  ExportSurfacesBinary: An Imaris XTension to export surfaces.
 #
-#  Copyright © 2023-2025 MASSACHUSETTS INSTITUTE OF TECHNOLOGY.
+#  Copyright © 2023-2026 MASSACHUSETTS INSTITUTE OF TECHNOLOGY.
 #  All rights reserved.
 #
 #  Written by Christopher Skalnik.
@@ -16,7 +16,11 @@
 '''ExportSurfacesBinary exports the surfaces in an Imaris file for use outside Imaris.
 
 Unlike ExportSurfaces, ExportSurfacesBinary exports to the binary JSON-like
-messagepack format for a more compressed representation of surfaces.
+messagepack format for a more compressed representation of surfaces. It is also
+capable of exporting large surfaces that exceed the maximum contiguous memory
+allocation Imaris can support. However, such exports can be slow. For example,
+exporting the tissue volume surfaces from a full lung section took around 3
+hours.
 '''
 
 import datetime
@@ -30,7 +34,6 @@ import traceback
 import ImarisLib
 
 import msgpack
-import orjson
 from tkinter import Tk
 from tkinter import messagebox
 from tkinter import filedialog
@@ -96,15 +99,49 @@ def GetSurfaceJson(vSurfaceIndex, vSurfaceId):
 
     Meant to be run asynchronously as one task in a multiprocessing pool.'''
     vSurfaceData = vSurfaces.GetSurfaceData(vSurfaceIndex)
+    surface_layout = vSurfaces.GetSurfaceDataLayout(vSurfaceIndex)
     assert str(vSurfaceData.GetType()) == 'eTypeUInt16'
-    vSurfaceDataArray = np.array(vSurfaceData.GetDataFloats(), dtype='int16')
-    # The data array is a 5-dimensional array. The first two dimensions
-    # appear to be meaningless and have size 1. The last 3 dimensions are
-    # x, y, and z.
-    assert vSurfaceDataArray.shape[0] == 1
-    assert vSurfaceDataArray.shape[1] == 1
-    # Re-shape the data array to have axes (z, y, x).
-    vSurfaceDataArray = vSurfaceDataArray[0, 0, :, :, :].transpose([2, 1, 0])
+    try:
+        vSurfaceDataArray = np.array(vSurfaceData.GetDataFloats(), dtype='int16')
+        # The data array is a 5-dimensional array. The first two dimensions
+        # store channel and time, and they both have size 1 since surfaces
+        # don't have multiple channels and we don't image over time. The last 3
+        # dimensions are x, y, and z.
+        assert vSurfaceDataArray.shape[0] == 1
+        assert vSurfaceDataArray.shape[1] == 1
+        # Re-shape the data array to have axes (z, y, x).
+        vSurfaceDataArray = vSurfaceDataArray[0, 0, :, :, :].transpose([2, 1, 0])
+    except Exception as e:
+        print(
+            f'Error retrieving surface {vSurfaceId} at index {vSurfaceIndex}: ',
+            e
+        )
+        print('Retrieving surface one row along the x axis at a time')
+        # Data array has shape (z, y, x)
+        vSurfaceDataArray = np.array(
+            # Grab the surface data one z-slice at a time (fixing channel and time
+            # to index 0) so that we don't exceed the 512 MB limit for retrieving
+            # data from Imaris.
+            [
+                [
+                    np.array(
+                        vSurfaceData.GetDataSubSliceFloats(
+                            0, y, z, 0, 0, surface_layout.mSizeX, 1),
+                        # Imaris stores surface data as signed 16-bit values,
+                        # which are returned to us as unsigned 16-bit integers.
+                        # For example, many voxels have the value 32768 (2**16
+                        # / 2), which represents -32768 (the most negative
+                        # int16 value). Numpy handles converting this data to a
+                        # signed representation.
+                        dtype='int16',
+                    # Binarize array as quickly as possible to reduce memory
+                    # footprint.
+                    ) > 0
+                    for y in range(surface_layout.mSizeY)
+                ]
+                for z in range(surface_layout.mSizeZ)
+            ]
+        )
 
     vFlatSurfaceData = vSurfaceDataArray.flatten() > 0
     vBinarySurfaceData = np.packbits(vFlatSurfaceData, bitorder='big').tobytes()
@@ -166,15 +203,7 @@ def Main(vImarisApplication, aImarisId):
     # is the number of workers, then each worker will only get one task, and we
     # operate as if instead of using a pool we pre-partitioned the tasks among
     # the workers.
-
-    # Benchmarking with 1000 surfaces:
-    # num_tasks = workers: 0.09237308502197265 min
-    # num_tasks = num surfaces: 0.09286127090454102 min
-
-    # Benchmarking with >158,000 surfaces:
-    # num_tasks = workers: 29.60245312054952 min
-    # num_tasks = num_surfaces: 24.2604834040006 min, 37 mins
-    num_tasks = workers
+    num_tasks = len(vSurfaceIds)
     tasks = [([], []) for _ in range(num_tasks)]
     progressbar = tqdm(total=len(tasks))
     with imaris_handling_context.Pool(
@@ -203,7 +232,7 @@ def Main(vImarisApplication, aImarisId):
     print(f'Surfaces retrieved in {(end - start) / 60} min')
 
     vSafeSurfaceName = vSurfaces.GetName().replace(' ', '_')
-    vExportPath = f'{os.path.splitext(image_path)[0]}-{vSafeSurfaceName}-benchmark.mpk'
+    vExportPath = f'{os.path.splitext(image_path)[0]}-{vSafeSurfaceName}.mpk'
     if os.path.exists(vExportPath):
         logging.info(f'Existing file detected at {vExportPath}. Asking user for confirmation.')
         if messagebox.askyesno(
