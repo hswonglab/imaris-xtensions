@@ -15,22 +15,26 @@
 
 '''ImportSurfaces exports the surfaces in an Imaris file for use outside Imaris.
 '''
+try:
+    import logging
+    import os
+    import sys
+    import time
+    import traceback
+    from tqdm import tqdm
 
-import logging
-import os
-import sys
-import time
-import traceback
-from tqdm import tqdm
+    import ImarisLib
+    import Imaris
+    import orjson
 
-import ImarisLib
-import Imaris
-import orjson
-
-from tkinter import Tk
-from tkinter import messagebox
-from tkinter import filedialog
-from tkinter import simpledialog
+    from tkinter import Tk
+    from tkinter import messagebox
+    from tkinter import filedialog
+    from tkinter import simpledialog
+except Exception as e:
+    print(e)
+    input("Press enter to exit;")
+    raise
 
 # Some DLLs are stored at this path, but it isn't correctly set by default. We
 # can't just set the system environment variable because doing so adds a space
