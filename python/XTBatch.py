@@ -28,7 +28,7 @@ except Exception as e:
 
 
 def XTBatch(
-    vImarisApplication, fn, args=None, im_args_dict=None,
+    vImarisApplication, fn, args=None, im_args_dict=None, im_args_func=None,
     operate_on_image=True, save=True, filenames=None
 ):
     '''Applies an operation to all .ims files in the directory of the currently-open image.
@@ -43,10 +43,17 @@ def XTBatch(
     args : tuple(...) (optional)
         tuple of variables to be passed to fn as arguments
     im_args_dict : dict[str:tuple(...)] (optional)
-        Arguments to `fn` that should override the default arguments in `args`
-        for a particular image, expressed as a mapping from image path
-        (excluding the `.ims` extension) to the arguments (as a tuple) that
-        should be used instead of `args` for that image.
+        Arguments to `fn` that apply to a particular image, expressed as a 
+        mapping from image path (excluding the `.ims` extension) to the 
+        image-specific arguments (as a tuple). These arguments are appended to 
+        `args` for each call to `fn`
+        Only one of im_args_dict and im_args_func may be used.
+    im_args_func : Callable [ str, tuple(...) ] (optional)
+        Arguments to `fn` that apply to a particular image, expressed as a 
+        function that takes the image path (excluding the `.ims` extension)
+        and returns the image-specific arguments (as a tuple). These arguments are 
+        appended to  `args` for each call to `fn`
+        Only one of im_args_dict and im_args_func may be used.
     operate_on_image : bool 
         If True, fn should operate directly on the image (IDataset object).
         XTBatch will expect a new image to be returned by each call to fn,
@@ -78,7 +85,9 @@ def XTBatch(
     filenames = filenames or [f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
 
     # vImarisApplication.FileSave(curr_image_path,'')
-
+    if im_args_dict and im_args_func:
+        raise Exception('Image-specific arguments must be provided either as a dictionary or a function, not both.')
+    
     for filename in filenames:
         if im_args_dict is not None:
             try:
@@ -87,6 +96,8 @@ def XTBatch(
                 logging.warning(f'Attempted to find image-specific argument for {filename} but none was found.')
                 logging.info(f'Skipping image {filename}')
                 continue
+        elif im_args_func is not None:
+            im_args=im_args_func(filename[:-4])
         else:
             im_args = []
         image_path=image_folder_path + '\\' + filename
