@@ -31,6 +31,7 @@ try:
     from tkinter import messagebox
     from tkinter import filedialog
     from tkinter import simpledialog
+    from XTBatch import XTBatch
 except Exception as e:
     print(e)
     input("Press enter to exit;")
@@ -58,7 +59,6 @@ class TqdmStreamHandler(logging.StreamHandler):
             self.handleError(record)
 
 def Main(vImarisApplication):
-    vStartTime = time.time()
     image_path = vImarisApplication.GetCurrentFileName()
     logpath = image_path + '.log'
     logging.basicConfig(
@@ -69,7 +69,6 @@ def Main(vImarisApplication):
             TqdmStreamHandler(sys.stdout),
         ]
     )
-    logging.info('----- Begin importing surfaces to %s -----', image_path)
 
     # Get the image and channels
     vNumberOfImages = vImarisApplication.GetNumberOfImages()
@@ -77,19 +76,53 @@ def Main(vImarisApplication):
         messagebox.showwarning('Only 1 image may be open at a time for this XTension')
         return
 
-    vSurfaces = vImarisApplication.GetFactory().CreateSurfaces()
     
     logging.info('Asking user to select json')
     vFilePath = filedialog.askopenfilename(title='Select json representing Imaris surfaces')
     if not vFilePath:
         return
+    
     vSurfaceName = simpledialog.askstring(
         'Surface Name', 'Enter name for imported surfaces:',
         initialvalue='Imported Surfaces'
     ) or 'Imported Surfaces'
 
+    batched=messagebox.askyesno(
+        'Batched Operation.',
+        'Would you like to apply changes to all .ims files in this folder?  \n' \
+        'If yes, the name of the selected .json file must begin with the name of the selected .ims file.'
+    )    
+
+    if batched:
+        vBase, _ = os.path.splitext(image_path)
+        vFilePath=vFilePath.replace('/','\\')
+        if vFilePath[:len(vBase)]==vBase:
+            json_suffix=vFilePath[len(vBase):]
+            image_folder_path='\\'.join(image_path.split('\\')[:-1])
+        else:
+            raise Exception('Name of selected .json file does not begin with the name of the selected .ims file.')
+        XTBatch(vImarisApplication,fn=ImageImportSurfaces,args=(vSurfaceName,),
+                im_args_func=lambda FileName:(image_folder_path+'\\'+FileName+json_suffix,),operate_on_image=False)
+    else:
+        ImageImportSurfaces(vImarisApplication,vSurfaceName,vFilePath)
+        # Save to a new file with suffix — I can't make Imaris overwrite the currently open file
+        vBase, vExt = os.path.splitext(image_path)
+        vSavePath = f'{vBase}-imported_surfaces{vExt}'
+        logging.info('Saving to %s', vSavePath)
+        vImarisApplication.FileSave(vSavePath, '')
+    
+
+
+
+    logging.info('----- Begin importing surfaces to %s -----', image_path)
+    logging.info('----- Done importing surfaces -----')
+
+def ImageImportSurfaces(vImarisApplication,vSurfaceName,vFilePath):
+    vStartTime = time.time()
     with open(vFilePath, 'rb') as f:
         vSurfaceJson = orjson.loads(f.read())
+
+    vSurfaces = vImarisApplication.GetFactory().CreateSurfaces()
 
     n_skipped = 0
     logging.info('Importing %d surfaces', len(vSurfaceJson))
@@ -126,12 +159,6 @@ def Main(vImarisApplication):
     vScene = vImarisApplication.GetSurpassScene()
     vScene.AddChild(vSurfaces, -1)
 
-    # Save to a new file with suffix — I can't make Imaris overwrite the currently open file
-    vBase, vExt = os.path.splitext(image_path)
-    vSavePath = f'{vBase}-imported_surfaces{vExt}'
-    logging.info('Saving to %s', vSavePath)
-    vImarisApplication.FileSave(vSavePath, '')
-
     vElapsedTime = (time.time() - vStartTime)/60
     logging.info(
         f'Imported %d/%d surfaces (%d skipped) in %.2f minutes',
@@ -140,7 +167,6 @@ def Main(vImarisApplication):
         n_skipped,
         vElapsedTime,
     )
-    logging.info('----- Done importing surfaces -----')
 
 def ImportSurfaces(aImarisId):
     # Create an ImarisLib object
