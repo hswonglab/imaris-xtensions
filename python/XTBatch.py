@@ -89,14 +89,14 @@ def XTBatch(
         raise Exception('Image-specific arguments must be provided either as a dictionary or a function, not both.')
     
     for filename in filenames:
-        if im_args_dict is not None:
+        if im_args_dict:
             try:
-                im_args=im_args_dict[filename[:-4]]
+                im_args=im_args_dict[filename[:-4]] # slicing to truncate extension
             except KeyError:
                 logging.warning(f'Attempted to find image-specific argument for {filename} but none was found.')
                 logging.info(f'Skipping image {filename}')
                 continue
-        elif im_args_func is not None:
+        elif im_args_func:
             im_args=im_args_func(filename[:-4])
         else:
             im_args = []
