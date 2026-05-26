@@ -87,6 +87,14 @@ def _coerce_boolean_stat(value, stat_name):
         return int(value)
     raise TypeError(f'{stat_name} must be true or false, got {value!r}')
 
+def _show_message_box(show_message_fn, title, message):
+    vMessageRoot = Tk()
+    vMessageRoot.withdraw()
+    try:
+        show_message_fn(title, message, parent=vMessageRoot)
+    finally:
+        vMessageRoot.destroy()
+
 def _add_imported_surface_statistics(vSurfaces, successful_records):
     if not successful_records:
         logging.info('No imported surfaces were available for metadata statistics')
@@ -100,24 +108,21 @@ def _add_imported_surface_statistics(vSurfaces, successful_records):
         )
 
     vRows = list(zip(vSurfaceIds, successful_records))
-    _add_surface_statistic(
-        vSurfaces,
-        'label',
-        [
-            (surface_id, record['label'])
-            for surface_id, record in vRows
-            if record.get('label') is not None
-        ],
-    )
-    _add_surface_statistic(
-        vSurfaces,
-        'in_paracortex',
-        [
-            (surface_id, _coerce_boolean_stat(record['in_paracortex'], 'in_paracortex'))
-            for surface_id, record in vRows
-            if 'in_paracortex' in record and record['in_paracortex'] is not None
-        ],
-    )
+    vLabelValuesById = []
+    vInParacortexValuesById = []
+    for surface_id, record in vRows:
+        vLabel = record.get('label')
+        if vLabel is not None:
+            vLabelValuesById.append((surface_id, vLabel))
+
+        vInParacortex = record.get('in_paracortex')
+        if vInParacortex is not None:
+            vInParacortexValuesById.append(
+                (surface_id, _coerce_boolean_stat(vInParacortex, 'in_paracortex'))
+            )
+
+    _add_surface_statistic(vSurfaces, 'label', vLabelValuesById)
+    _add_surface_statistic(vSurfaces, 'in_paracortex', vInParacortexValuesById)
 
 def Main(vImarisApplication, vRootTkWindow):
     image_path = vImarisApplication.GetCurrentFileName()
@@ -141,7 +146,8 @@ def Main(vImarisApplication, vRootTkWindow):
     # Step 1: Ask for surface name (applies to all modes)
     vSurfaceName = simpledialog.askstring(
         'Surface Name', 'Enter name for imported surfaces:',
-        initialvalue='Imported Surfaces'
+        initialvalue='Imported Surfaces',
+        parent=vRootTkWindow,
     ) or 'Imported Surfaces'
 
     # Step 2: Ask which mode to run in
@@ -291,13 +297,17 @@ def ImportSurfaces(aImarisId):
     # Get an imaris object with id aImarisId
     vImarisApplication = vImarisLib.GetApplication(aImarisId)
 
-    # Initialize and launch Tk window, then hide it.
     vRootTkWindow = Tk()
     vRootTkWindow.withdraw()
 
     # Check if the object is valid
     if vImarisApplication is None:
-        messagebox.showerror('Error', f'Failed to connect to Imaris application (id={aImarisId})')
+        vRootTkWindow.destroy()
+        _show_message_box(
+            messagebox.showerror,
+            'Error',
+            f'Failed to connect to Imaris application (id={aImarisId})',
+        )
         return
 
     print(f'Connected to Imaris application (id={aImarisId})')
@@ -306,5 +316,5 @@ def ImportSurfaces(aImarisId):
         Main(vImarisApplication, vRootTkWindow)
     except Exception as exception:
         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
-    messagebox.showinfo('Complete', 'The XTension has terminated.')
     vRootTkWindow.destroy()
+    _show_message_box(messagebox.showinfo, 'Complete', 'The XTension has terminated.')

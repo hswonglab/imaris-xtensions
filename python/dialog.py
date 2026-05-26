@@ -16,8 +16,10 @@ class MessageBox(object):
             self._owns_window = False
 
         window.title(title)
-        window.transient(parent)
+        if parent is not None and parent.winfo_viewable():
+            window.transient(parent)
         window.grab_set()
+        window.lift()
         self.result = None
 
         # Create main frame for the window.
