@@ -29,7 +29,7 @@ except Exception as e:
 
 def XTBatch(
     vImarisApplication, fn, args=None, im_args_dict=None, im_args_func=None,
-    operate_on_image=True, save=True, filenames=None
+    operate_on_image=True, save=True, filenames=None, save_suffix='XTBatch'
 ):
     '''Applies an operation to all .ims files in the directory of the currently-open image.
     
@@ -71,7 +71,8 @@ def XTBatch(
         List of names of ims files to operate on. If not specified, XTension
         will run on all ims files in directory of currently-open image.
     '''
-    args = args or []
+    if args is None:
+        args = []
     # overwrite=messagebox.askyesno(
     #     'Save Options.',
     #     'Would you like to overwrite the existing existing images with modified images? \n Otherwise modified images will be saved as a separate files ending in "XTBatch.ims"'
@@ -85,19 +86,23 @@ def XTBatch(
     filenames = filenames or [f for f in os.listdir(image_folder_path) if f.endswith('.ims')]
 
     # vImarisApplication.FileSave(curr_image_path,'')
-    if im_args_dict and im_args_func:
+    if (im_args_dict is not None) and (im_args_func is not None):
         raise Exception('Image-specific arguments must be provided either as a dictionary or a function, not both.')
     
     for filename in filenames:
-        if im_args_dict:
+        if im_args_dict is not None:
             try:
                 im_args=im_args_dict[filename[:-4]] # slicing to truncate extension
             except KeyError:
                 logging.warning(f'Attempted to find image-specific argument for {filename} but none was found.')
                 logging.info(f'Skipping image {filename}')
                 continue
-        elif im_args_func:
-            im_args=im_args_func(filename[:-4])
+        elif im_args_func is not None:
+            try:
+                im_args=im_args_func(filename[:-4])
+            except Exception as e:
+                logging.warning('Skipping %s: %s', filename, e)
+                continue
         else:
             im_args = []
         image_path=image_folder_path + '\\' + filename
@@ -123,7 +128,7 @@ def XTBatch(
             new_image_path=image_path
         else:
             path_strings=image_path.split('.')
-            path_strings[-2]+='XTBatch'
+            path_strings[-2]+=save_suffix
             new_image_path='.'.join(path_strings)
         if save:
             logging.info('Saving changes to %s', new_image_path)

@@ -2,26 +2,36 @@ from typing import List, Optional
 
 import tkinter
 
+
 class MessageBox(object):
     '''A helper class for creating custom Tkinter dialog boxes.'''
 
-    def __init__(self, title, msg, options, entry=False):
-        root = self.root = tkinter.Tk()
-        root.title(title)
+    def __init__(self, title, msg, options, parent=None, entry=False):
+        self.parent = parent
+        if parent is None:
+            window = self.root = tkinter.Tk()
+            self._owns_window = True
+        else:
+            window = self.root = tkinter.Toplevel(parent)
+            self._owns_window = False
+
+        window.title(title)
+        window.transient(parent)
+        window.grab_set()
         self.result = None
-        
+
         # Create main frame for the window.
-        main = tkinter.Frame(root)
+        main = tkinter.Frame(window)
         main.pack(ipadx=2, ipady=2)
         message = tkinter.Label(main, text=msg)
         message.pack(padx=8, pady=8)
-        
+
         # If an entry field was requested, create it and focus on it.
         if entry:
             self.entry = tkinter.Entry(main)
             self.entry.pack()
             self.entry.focus_set()
-        
+
         # Create frame for buttons.
         buttons_frame = tkinter.Frame(main)
         buttons_frame.pack(padx=4, pady=4)
@@ -35,12 +45,17 @@ class MessageBox(object):
             if i == 0 and not entry:
                 btn.focus_set()
 
+        window.protocol('WM_DELETE_WINDOW', self.close)
+
+    def close(self):
+        self.root.destroy()
+
     def handler(self, option):
         self.result = option
-        self.root.quit()
+        self.close()
 
 
-def flexible_mbox(title: str, msg: str, options: List[str]) -> Optional[str]:
+def flexible_mbox(title: str, msg: str, options: List[str], parent=None) -> Optional[str]:
     '''Create a dialog box for user selection and return the result.
 
     Arguments:
@@ -54,9 +69,11 @@ def flexible_mbox(title: str, msg: str, options: List[str]) -> Optional[str]:
         Label of the button selected by the user, or None if the user closes
         the dialog without clicking a button.
     '''
-    msgbox = MessageBox(title, msg, options)
-    msgbox.root.mainloop()
-    msgbox.root.destroy()
+    msgbox = MessageBox(title, msg, options, parent=parent)
+    if msgbox._owns_window:
+        msgbox.root.mainloop()
+    else:
+        msgbox.root.wait_window()
     return msgbox.result
 
 
