@@ -195,7 +195,7 @@ def ConfigureImageChannels(vImage,vNewChannelNames,vNewChannelColors,confirmed=F
 
     if confirmed:
         print(f'Renaming channels {vOldChannelNames} to {vNewChannelNames}.')
-        print(f'Re-coloring from {vOldChannelColorStrings} to {vOldChannelColorStrings}.')
+        print(f'Re-coloring from {vOldChannelColorStrings} to {vNewChannelColorStrings}.')
     else:
         print('Changes aborted.')
         return None
