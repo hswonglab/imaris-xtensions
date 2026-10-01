@@ -44,6 +44,7 @@ script to (almost) the same behavior as the non-chunked version, which makes
 it useful as an apples-to-apples baseline too.
 '''
 try:
+    import gzip
     import logging
     import math
     import os
@@ -164,7 +165,7 @@ def Main_Chunked(vImarisApplication):
 
 def ImageImportSurfacesChunked(vImarisApplication, vSurfaceName, vChunkSize, vFilePath):
     vStartTime = time.time()
-    with open(vFilePath, 'rb') as f:
+    with (gzip.open if vFilePath.endswith('.gz') else open)(vFilePath, 'rb') as f:
         vSurfaceJson = orjson.loads(f.read())
 
     vTotal = len(vSurfaceJson)

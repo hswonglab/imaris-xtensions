@@ -17,6 +17,7 @@
 '''
 try:
     import glob
+    import gzip
     import logging
     import os
     import sys
@@ -155,7 +156,7 @@ def Main(vImarisApplication, vRootTkWindow):
         'Import Surfaces',
         'Choose how to run the import.\n\n'
         'For batch options, the JSON file for each .ims file is found\n'
-        'automatically: the script searches the same folder for a .json file\n'
+        'automatically: the script searches the same folder for a .json or .json.gz file\n'
         'whose name starts with the .ims filename.',
         ['This image only', 'All .ims in folder', 'Choose .ims files'],
         parent=vRootTkWindow,
@@ -167,7 +168,10 @@ def Main(vImarisApplication, vRootTkWindow):
 
     def find_json_path(file_basename, log_missing=True):
         '''Find the JSON file for a given .ims basename (no extension).'''
-        matches = sorted(glob.glob(os.path.join(image_folder_path, file_basename + '*.json')))
+        matches = sorted(
+            glob.glob(os.path.join(image_folder_path, file_basename + '*.json'))
+            + glob.glob(os.path.join(image_folder_path, file_basename + '*.json.gz'))
+        )
         if not matches:
             if log_missing:
                 logging.warning('No JSON file found for %s in %s', file_basename, image_folder_path)
@@ -185,7 +189,7 @@ def Main(vImarisApplication, vRootTkWindow):
     if vMode == 'This image only':
         vFilePath = filedialog.askopenfilename(
             title='Select JSON representing Imaris surfaces',
-            filetypes=[('JSON files', '*.json'), ('All files', '*.*')],
+            filetypes=[('JSON files', '*.json *.json.gz'), ('All files', '*.*')],
             parent=vRootTkWindow,
         )
         if not vFilePath:
@@ -230,7 +234,7 @@ def Main(vImarisApplication, vRootTkWindow):
 def ImageImportSurfaces(vImarisApplication, vSurfaceName, vFilePath, save_suffix='-imported_surfaces'):
     vStartTime = time.time()
     image_path = vImarisApplication.GetCurrentFileName()
-    with open(vFilePath, 'rb') as f:
+    with (gzip.open if vFilePath.endswith('.gz') else open)(vFilePath, 'rb') as f:
         vSurfaceJson = orjson.loads(f.read())
 
     if not isinstance(vSurfaceJson, list):
