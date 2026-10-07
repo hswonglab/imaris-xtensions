@@ -44,6 +44,7 @@ script to (almost) the same behavior as the non-chunked version, which makes
 it useful as an apples-to-apples baseline too.
 '''
 try:
+    import glob
     import gzip
     import logging
     import math
@@ -62,6 +63,7 @@ try:
     from tkinter import filedialog
     from tkinter import simpledialog
     from XTBatch import XTBatch
+    from dialog import flexible_mbox
 except Exception as e:
     print(e)
     input("Press enter to exit;")
@@ -97,7 +99,16 @@ class TqdmStreamHandler(logging.StreamHandler):
             self.handleError(record)
 
 
-def Main_Chunked(vImarisApplication):
+def _show_message_box(show_message_fn, title, message):
+    vMessageRoot = Tk()
+    vMessageRoot.withdraw()
+    try:
+        show_message_fn(title, message, parent=vMessageRoot)
+    finally:
+        vMessageRoot.destroy()
+
+
+def Main_Chunked(vImarisApplication, vRootTkWindow):
     image_path = vImarisApplication.GetCurrentFileName()
     logpath = image_path + '.log'
     logging.basicConfig(
@@ -115,14 +126,11 @@ def Main_Chunked(vImarisApplication):
         messagebox.showwarning('Only 1 image may be open at a time for this XTension')
         return
 
-    logging.info('Asking user to select json')
-    vFilePath = filedialog.askopenfilename(title='Select json representing Imaris surfaces')
-    if not vFilePath:
-        return
-
+    # Step 1: Ask for surface name and chunk size (applies to all modes)
     vSurfaceName = simpledialog.askstring(
         'Surface Name', 'Enter name for imported surfaces:',
-        initialvalue='Imported Surfaces'
+        initialvalue='Imported Surfaces',
+        parent=vRootTkWindow,
     ) or 'Imported Surfaces'
 
     vChunkSize = simpledialog.askinteger(
@@ -131,42 +139,103 @@ def Main_Chunked(vImarisApplication):
         'Set this to a number >= the total surface count to disable chunking\n'
         '(i.e. behave like the non-chunked ImportSurfaces script):',
         initialvalue=DEFAULT_CHUNK_SIZE, minvalue=1,
+        parent=vRootTkWindow,
     )
     if vChunkSize is None:
         return
 
-    batched = messagebox.askyesno(
-        'Batched Operation.',
-        'Would you like to apply changes to all .ims files in this folder?  \n' \
-        'If yes, the name of the selected .json file must begin with the name of the selected .ims file.'
+    # Step 2: Ask which mode to run in
+    vMode = flexible_mbox(
+        'Import Surfaces (Chunked)',
+        'Choose how to run the import.\n\n'
+        'For batch options, the JSON file for each .ims file is found\n'
+        'automatically: the script searches the same folder for a .json or .json.gz file\n'
+        'whose name starts with the .ims filename.',
+        ['This image only', 'All .ims in folder', 'Choose .ims files'],
+        parent=vRootTkWindow,
     )
+    if vMode is None:
+        return
 
-    if batched:
-        vBase, _ = os.path.splitext(image_path)
-        vFilePath = vFilePath.replace('/', '\\')
-        if vFilePath[:len(vBase)] == vBase:
-            json_suffix = vFilePath[len(vBase):]
-            image_folder_path = '\\'.join(image_path.split('\\')[:-1])
-        else:
-            raise Exception('Name of selected .json file does not begin with the name of the selected .ims file.')
-        XTBatch(vImarisApplication, fn=ImageImportSurfacesChunked, args=(vSurfaceName, vChunkSize),
-                im_args_func=lambda FileName: (image_folder_path + '\\' + FileName + json_suffix,), operate_on_image=False)
-    else:
+    image_folder_path = os.path.dirname(image_path)
+
+    def find_json_path(file_basename, log_missing=True):
+        '''Find the JSON file for a given .ims basename (no extension).'''
+        matches = sorted(
+            glob.glob(os.path.join(image_folder_path, file_basename + '*.json'))
+            + glob.glob(os.path.join(image_folder_path, file_basename + '*.json.gz'))
+        )
+        if not matches:
+            if log_missing:
+                logging.warning('No JSON file found for %s in %s', file_basename, image_folder_path)
+            return None
+        if len(matches) > 1:
+            logging.warning('Multiple JSON files found for %s, using %s', file_basename, matches[0])
+        return matches[0]
+
+    def batch_json_arg(file_basename):
+        json_path = find_json_path(file_basename, log_missing=False)
+        if json_path is None:
+            raise FileNotFoundError(f'No JSON file found for {file_basename} in {image_folder_path}')
+        return (json_path,)
+
+    if vMode == 'This image only':
+        vFilePath = filedialog.askopenfilename(
+            title='Select JSON representing Imaris surfaces',
+            filetypes=[('JSON files', '*.json *.json.gz'), ('All files', '*.*')],
+            parent=vRootTkWindow,
+        )
+        if not vFilePath:
+            return
+        logging.info('Importing surfaces into %s from %s', image_path, vFilePath)
         ImageImportSurfacesChunked(vImarisApplication, vSurfaceName, vChunkSize, vFilePath)
-        # Save to a new file with suffix — I can't make Imaris overwrite the currently open file
-        vBase, vExt = os.path.splitext(image_path)
-        vSavePath = f'{vBase}-imported_surfaces_chunked{vExt}'
-        logging.info('Saving to %s', vSavePath)
-        vImarisApplication.FileSave(vSavePath, '')
 
-    logging.info('----- Begin importing surfaces to %s -----', image_path)
-    logging.info('----- Done importing surfaces -----')
+    elif vMode == 'All .ims in folder':
+        logging.info('Importing surfaces into all .ims files in %s', image_folder_path)
+        XTBatch(
+            vImarisApplication,
+            fn=ImageImportSurfacesChunked,
+            args=(vSurfaceName, vChunkSize),
+            im_args_func=batch_json_arg,
+            operate_on_image=False,
+            save=False,
+        )
+        logging.info('Finished batch import for folder %s', image_folder_path)
+
+    elif vMode == 'Choose .ims files':
+        selected_paths = filedialog.askopenfilenames(
+            title='Select .ims files to import surfaces into',
+            initialdir=image_folder_path,
+            filetypes=[('IMS files', '*.ims'), ('All files', '*.*')],
+            parent=vRootTkWindow,
+        )
+        if not selected_paths:
+            return
+        selected_filenames = [os.path.basename(selected_path) for selected_path in selected_paths]
+        logging.info('Importing surfaces into %d selected .ims files', len(selected_filenames))
+        XTBatch(
+            vImarisApplication,
+            fn=ImageImportSurfacesChunked,
+            args=(vSurfaceName, vChunkSize),
+            im_args_func=batch_json_arg,
+            operate_on_image=False,
+            save=False,
+            filenames=selected_filenames,
+        )
+        logging.info('Finished selected-file batch import')
 
 
-def ImageImportSurfacesChunked(vImarisApplication, vSurfaceName, vChunkSize, vFilePath):
+def ImageImportSurfacesChunked(
+    vImarisApplication, vSurfaceName, vChunkSize, vFilePath,
+    save_suffix='-imported_surfaces_chunked',
+):
     vStartTime = time.time()
+    image_path = vImarisApplication.GetCurrentFileName()
     with (gzip.open if vFilePath.endswith('.gz') else open)(vFilePath, 'rb') as f:
         vSurfaceJson = orjson.loads(f.read())
+
+    if not isinstance(vSurfaceJson, list):
+        raise RuntimeError('Surface JSON must be a top-level list of surface records')
 
     vTotal = len(vSurfaceJson)
     vNumChunks = max(1, math.ceil(vTotal / vChunkSize))
@@ -254,6 +323,13 @@ def ImageImportSurfacesChunked(vImarisApplication, vSurfaceName, vChunkSize, vFi
             vChunkElapsed / vChunkCount if vChunkCount else 0.0,
         )
 
+    # Save to a new file with suffix — I can't make Imaris overwrite the currently open file
+    vBase, vExt = os.path.splitext(image_path)
+    vSavePath = f'{vBase}{save_suffix}{vExt}'
+    logging.info('Saving to %s', vSavePath)
+    vImarisApplication.FileSave(vSavePath, '')
+    logging.info('Finished importing surfaces into %s', vSavePath)
+
 
 def ImportSurfacesChunked(aImarisId):
     # Create an ImarisLib object
@@ -268,13 +344,19 @@ def ImportSurfacesChunked(aImarisId):
 
     # Check if the object is valid
     if vImarisApplication is None:
-        messagebox.showerror('Error', f'Failed to connect to Imaris application (id={aImarisId})')
+        vRootTkWindow.destroy()
+        _show_message_box(
+            messagebox.showerror,
+            'Error',
+            f'Failed to connect to Imaris application (id={aImarisId})',
+        )
         return
 
     print(f'Connected to Imaris application (id={aImarisId})')
 
     try:
-        Main_Chunked(vImarisApplication)
+        Main_Chunked(vImarisApplication, vRootTkWindow)
     except Exception as exception:
         print(traceback.print_exception(type(exception), exception, exception.__traceback__))
-    messagebox.showinfo('Complete', 'The XTension has terminated.')
+    vRootTkWindow.destroy()
+    _show_message_box(messagebox.showinfo, 'Complete', 'The XTension has terminated.')
