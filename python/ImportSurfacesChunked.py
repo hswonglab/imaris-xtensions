@@ -87,6 +87,10 @@ LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(mes
 # picks a winner.
 DEFAULT_CHUNK_SIZE = 1000
 
+# Characters allowed between an .ims basename and the rest of its JSON's name
+# (e.g. img1_surfaces.json), so that img1 does not match img10_surfaces.json.
+JSON_NAME_SEPARATORS = '_-. '
+
 
 class TqdmStreamHandler(logging.StreamHandler):
     """StreamHandler that writes through tqdm.write() to avoid breaking progress bars."""
@@ -106,6 +110,17 @@ def _show_message_box(show_message_fn, title, message):
         show_message_fn(title, message, parent=vMessageRoot)
     finally:
         vMessageRoot.destroy()
+
+
+def _invalid_batch_selections(selected_paths, image_folder_path):
+    '''Return selected paths that XTBatch can't process: it only opens .ims
+    files from the folder of the currently-open image.'''
+    vFolder = os.path.normcase(os.path.normpath(image_folder_path))
+    return [
+        selected_path for selected_path in selected_paths
+        if os.path.normcase(os.path.dirname(os.path.normpath(selected_path))) != vFolder
+        or not selected_path.lower().endswith('.ims')
+    ]
 
 
 def Main_Chunked(vImarisApplication, vRootTkWindow):
@@ -159,25 +174,50 @@ def Main_Chunked(vImarisApplication, vRootTkWindow):
 
     image_folder_path = os.path.dirname(image_path)
 
-    def find_json_path(file_basename, log_missing=True):
-        '''Find the JSON file for a given .ims basename (no extension).'''
-        matches = sorted(
-            glob.glob(os.path.join(image_folder_path, file_basename + '*.json'))
-            + glob.glob(os.path.join(image_folder_path, file_basename + '*.json.gz'))
-        )
-        if not matches:
-            if log_missing:
-                logging.warning('No JSON file found for %s in %s', file_basename, image_folder_path)
-            return None
-        if len(matches) > 1:
-            logging.warning('Multiple JSON files found for %s, using %s', file_basename, matches[0])
-        return matches[0]
+    def find_json_paths(file_basename):
+        '''Find candidate JSON files for a given .ims basename (no extension).
+
+        An exact <basename>.json or <basename>.json.gz wins. Otherwise the
+        basename must be followed by a separator, so that img1 does not pick
+        up img10_surfaces.json.
+        '''
+        vPattern = os.path.join(glob.escape(image_folder_path), glob.escape(file_basename))
+        matches = sorted(glob.glob(vPattern + '*.json') + glob.glob(vPattern + '*.json.gz'))
+        vNames = [os.path.basename(match).lower() for match in matches]
+        vBase = file_basename.lower()
+        exact = [m for m, n in zip(matches, vNames) if n in (vBase + '.json', vBase + '.json.gz')]
+        if exact:
+            return exact
+        return [m for m, n in zip(matches, vNames) if n[len(vBase)] in JSON_NAME_SEPARATORS]
 
     def batch_json_arg(file_basename):
-        json_path = find_json_path(file_basename, log_missing=False)
-        if json_path is None:
+        json_paths = find_json_paths(file_basename)
+        if not json_paths:
             raise FileNotFoundError(f'No JSON file found for {file_basename} in {image_folder_path}')
-        return (json_path,)
+        if len(json_paths) > 1:
+            raise RuntimeError(
+                f'Multiple JSON files found for {file_basename}: '
+                + ', '.join(os.path.basename(path) for path in json_paths)
+            )
+        return (json_paths[0],)
+
+    failed_images = []
+
+    def batch_import(vImarisApplication, *args):
+        '''Import one batch image, logging failures so the batch continues.'''
+        try:
+            ImageImportSurfacesChunked(vImarisApplication, *args)
+        except Exception:
+            failed_image = vImarisApplication.GetCurrentFileName()
+            failed_images.append(failed_image)
+            logging.exception('Failed to import surfaces into %s, continuing with the next file', failed_image)
+
+    def log_batch_failures():
+        if failed_images:
+            logging.warning(
+                '%d file(s) failed to import, see errors above:\n%s',
+                len(failed_images), '\n'.join(failed_images),
+            )
 
     if vMode == 'This image only':
         vFilePath = filedialog.askopenfilename(
@@ -194,34 +234,45 @@ def Main_Chunked(vImarisApplication, vRootTkWindow):
         logging.info('Importing surfaces into all .ims files in %s', image_folder_path)
         XTBatch(
             vImarisApplication,
-            fn=ImageImportSurfacesChunked,
+            fn=batch_import,
             args=(vSurfaceName, vChunkSize),
             im_args_func=batch_json_arg,
             operate_on_image=False,
             save=False,
         )
+        log_batch_failures()
         logging.info('Finished batch import for folder %s', image_folder_path)
 
     elif vMode == 'Choose .ims files':
         selected_paths = filedialog.askopenfilenames(
             title='Select .ims files to import surfaces into',
             initialdir=image_folder_path,
-            filetypes=[('IMS files', '*.ims'), ('All files', '*.*')],
+            filetypes=[('IMS files', '*.ims')],
             parent=vRootTkWindow,
         )
         if not selected_paths:
+            return
+        invalid_paths = _invalid_batch_selections(selected_paths, image_folder_path)
+        if invalid_paths:
+            messagebox.showerror(
+                'Invalid selection',
+                f'Selected files must be .ims files in {image_folder_path}:\n\n'
+                + '\n'.join(invalid_paths),
+                parent=vRootTkWindow,
+            )
             return
         selected_filenames = [os.path.basename(selected_path) for selected_path in selected_paths]
         logging.info('Importing surfaces into %d selected .ims files', len(selected_filenames))
         XTBatch(
             vImarisApplication,
-            fn=ImageImportSurfacesChunked,
+            fn=batch_import,
             args=(vSurfaceName, vChunkSize),
             im_args_func=batch_json_arg,
             operate_on_image=False,
             save=False,
             filenames=selected_filenames,
         )
+        log_batch_failures()
         logging.info('Finished selected-file batch import')
 
 
