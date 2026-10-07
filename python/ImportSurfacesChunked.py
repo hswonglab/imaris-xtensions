@@ -112,6 +112,13 @@ def _show_message_box(show_message_fn, title, message):
         vMessageRoot.destroy()
 
 
+def _json_name_matches(json_name, ims_basename):
+    '''Whether a lowercased JSON filename belongs to a lowercased .ims basename:
+    the basename followed by a separator (which covers <basename>.json).'''
+    vNext = json_name[len(ims_basename):len(ims_basename) + 1]
+    return json_name.startswith(ims_basename) and vNext != '' and vNext in JSON_NAME_SEPARATORS
+
+
 def _invalid_batch_selections(selected_paths, image_folder_path):
     '''Return selected paths that XTBatch can't process: it only opens .ims
     files from the folder of the currently-open image.'''
@@ -174,12 +181,19 @@ def Main_Chunked(vImarisApplication, vRootTkWindow):
 
     image_folder_path = os.path.dirname(image_path)
 
+    ims_basenames = [
+        os.path.splitext(filename)[0].lower()
+        for filename in os.listdir(image_folder_path) if filename.lower().endswith('.ims')
+    ]
+
     def find_json_paths(file_basename):
         '''Find candidate JSON files for a given .ims basename (no extension).
 
         An exact <basename>.json or <basename>.json.gz wins. Otherwise the
         basename must be followed by a separator, so that img1 does not pick
-        up img10_surfaces.json.
+        up img10_surfaces.json. A JSON that also matches a longer .ims name in
+        the folder belongs to that image, so sample does not pick up
+        sample_2_surfaces.json.
         '''
         vPattern = os.path.join(glob.escape(image_folder_path), glob.escape(file_basename))
         matches = sorted(glob.glob(vPattern + '*.json') + glob.glob(vPattern + '*.json.gz'))
@@ -188,10 +202,19 @@ def Main_Chunked(vImarisApplication, vRootTkWindow):
         exact = [m for m, n in zip(matches, vNames) if n in (vBase + '.json', vBase + '.json.gz')]
         if exact:
             return exact
-        return [m for m, n in zip(matches, vNames) if n[len(vBase)] in JSON_NAME_SEPARATORS]
+        vLongerBasenames = [b for b in ims_basenames if len(b) > len(vBase) and b.startswith(vBase)]
+        return [
+            m for m, n in zip(matches, vNames)
+            if _json_name_matches(n, vBase)
+            and not any(_json_name_matches(n, b) for b in vLongerBasenames)
+        ]
+
+    skipped_images = []
 
     def batch_json_arg(file_basename):
         json_paths = find_json_paths(file_basename)
+        if len(json_paths) != 1:
+            skipped_images.append(file_basename + '.ims')
         if not json_paths:
             raise FileNotFoundError(f'No JSON file found for {file_basename} in {image_folder_path}')
         if len(json_paths) > 1:
@@ -212,7 +235,12 @@ def Main_Chunked(vImarisApplication, vRootTkWindow):
             failed_images.append(failed_image)
             logging.exception('Failed to import surfaces into %s, continuing with the next file', failed_image)
 
-    def log_batch_failures():
+    def log_batch_summary():
+        if skipped_images:
+            logging.warning(
+                '%d file(s) skipped for a missing or ambiguous JSON, see warnings above:\n%s',
+                len(skipped_images), '\n'.join(skipped_images),
+            )
         if failed_images:
             logging.warning(
                 '%d file(s) failed to import, see errors above:\n%s',
@@ -240,7 +268,7 @@ def Main_Chunked(vImarisApplication, vRootTkWindow):
             operate_on_image=False,
             save=False,
         )
-        log_batch_failures()
+        log_batch_summary()
         logging.info('Finished batch import for folder %s', image_folder_path)
 
     elif vMode == 'Choose .ims files':
@@ -272,7 +300,7 @@ def Main_Chunked(vImarisApplication, vRootTkWindow):
             save=False,
             filenames=selected_filenames,
         )
-        log_batch_failures()
+        log_batch_summary()
         logging.info('Finished selected-file batch import')
 
 
