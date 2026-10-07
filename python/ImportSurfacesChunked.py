@@ -79,6 +79,7 @@ os.environ['PATH'] += f';{DLL_PATH}'
 import numpy as np
 
 LOG_FORMAT = '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d %(name)s] %(message)s'
+SURFACE_STAT_FACTOR_NAMES = ['Category', 'Time']
 
 # Number of surfaces to add to any one ISurfaces container before rolling over
 # to a fresh one. chunk_size=1000 is the value validated so far (see the
@@ -101,6 +102,68 @@ class TqdmStreamHandler(logging.StreamHandler):
             self.flush()
         except Exception:
             self.handleError(record)
+
+
+def _surface_stat_factors(n_stats):
+    return (['Surface'] * n_stats, ['1'] * n_stats)
+
+
+def _add_surface_statistic(vSurfaces, stat_name, values_by_id):
+    if not values_by_id:
+        return
+
+    vSurfaceIds = [surface_id for surface_id, _ in values_by_id]
+    vSurfaceStatNames = [stat_name] * len(values_by_id)
+    vSurfaceStatValues = [value for _, value in values_by_id]
+    vIndividualStatUnits = [None] * len(values_by_id)
+    vSurfaces.AddStatistics(
+        vSurfaceStatNames,
+        vSurfaceStatValues,
+        vIndividualStatUnits,
+        _surface_stat_factors(len(values_by_id)),
+        SURFACE_STAT_FACTOR_NAMES,
+        vSurfaceIds,
+    )
+    logging.info('Added statistic %s for %d surfaces', stat_name, len(values_by_id))
+
+
+def _coerce_boolean_stat(value, stat_name):
+    if isinstance(value, bool):
+        return int(value)
+    raise TypeError(f'{stat_name} must be true or false, got {value!r}')
+
+
+def _add_imported_surface_statistics(vSurfaces, successful_records):
+    '''Add the label / in_paracortex statistics from the JSON records to one
+    ISurfaces container. With chunking this runs once per chunk, matching each
+    chunk's records against that chunk's own surface IDs.'''
+    if not successful_records:
+        logging.info('No imported surfaces were available for metadata statistics')
+        return
+
+    vSurfaceIds = list(vSurfaces.GetIds())
+    if len(vSurfaceIds) != len(successful_records):
+        raise RuntimeError(
+            'Imported surface count does not match Imaris surface ID count: '
+            f'{len(successful_records)} imported vs {len(vSurfaceIds)} IDs'
+        )
+
+    vRows = list(zip(vSurfaceIds, successful_records))
+    vLabelValuesById = []
+    vInParacortexValuesById = []
+    for surface_id, record in vRows:
+        vLabel = record.get('label')
+        if vLabel is not None:
+            vLabelValuesById.append((surface_id, vLabel))
+
+        vInParacortex = record.get('in_paracortex')
+        if vInParacortex is not None:
+            vInParacortexValuesById.append(
+                (surface_id, _coerce_boolean_stat(vInParacortex, 'in_paracortex'))
+            )
+
+    _add_surface_statistic(vSurfaces, 'label', vLabelValuesById)
+    _add_surface_statistic(vSurfaces, 'in_paracortex', vInParacortexValuesById)
 
 
 def _show_message_box(show_message_fn, title, message):
@@ -334,6 +397,7 @@ def ImageImportSurfacesChunked(
         vChunkJson = vSurfaceJson[vChunkStart:vChunkEnd]
 
         vSurfaces = vImarisApplication.GetFactory().CreateSurfaces()
+        vChunkSuccessfulRecords = []
 
         for vSurfaceJsonData in tqdm(
             vChunkJson, desc=f'Importing chunk {vChunkIndex + 1}/{vNumChunks}'
@@ -359,6 +423,7 @@ def ImageImportSurfacesChunked(
             # add aSurfaceData to this chunk's Surfaces container
             try:
                 vSurfaces.AddSurface(aSurfaceData, 0)  # second number is time index which is irrelevant
+                vChunkSuccessfulRecords.append(vSurfaceJsonData)
             except Exception as e:
                 logging.warning(f'Failed to add surface:\n{e}')
                 logging.warning(f'The skipped surface:\n{vData}')
@@ -366,6 +431,7 @@ def ImageImportSurfacesChunked(
 
         vChunkName = vSurfaceName if vNumChunks == 1 else f'{vSurfaceName} [{vChunkIndex + 1}/{vNumChunks}]'
         vSurfaces.SetName(vChunkName)
+        _add_imported_surface_statistics(vSurfaces, vChunkSuccessfulRecords)
         vChunkSurfacesList.append(vSurfaces)
 
         vChunkElapsed = time.time() - vChunkStartTime
